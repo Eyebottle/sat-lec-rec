@@ -1,0 +1,65 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VSCode settings - included in version control for consistent dev environment
+# .vscode/ is NOT ignored to share project settings
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# FFmpeg binaries (download separately)
+third_party/ffmpeg/*.exe
+third_party/ffmpeg/*.dll
+
+# Windows build artifacts
+*.dll
+*.exe
+*.exp
+*.lib
+*.pdb
+
+# Recordings and test files
+*.mp4
+*.recording
+
+# Ignore all JSON files except specific config files
+*.json
+!.vscode/*.json
+!pubspec.lock
+!tsconfig*.json
+!analysis_options.yaml
