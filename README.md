@@ -2,6 +2,10 @@
 
 토요일 Zoom 강의 무인 자동 녹화 애플리케이션 (Windows Desktop)
 
+[![GitHub](https://img.shields.io/badge/GitHub-Eyebottle%2Fsat--lec--rec-blue?logo=github)](https://github.com/Eyebottle/sat-lec-rec)
+[![Flutter](https://img.shields.io/badge/Flutter-3.35.6-02569B?logo=flutter)](https://flutter.dev)
+[![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/windows)
+
 ## 📋 개요
 
 매주 토요일 강의를 정시에 자동으로 입장하고 안정적으로 녹화하는 Flutter Windows 데스크톱 앱입니다.
@@ -80,7 +84,7 @@ flutter config --enable-windows-desktop
 ```bash
 # 프로젝트 클론
 cd ~/projects
-git clone <repository-url> sat-lec-rec
+git clone git@github.com:Eyebottle/sat-lec-rec.git
 cd sat-lec-rec
 
 # 의존성 설치

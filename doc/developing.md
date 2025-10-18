@@ -62,3 +62,9 @@
 ## 7. 진행 로그
 
 - 2025-10-17: Git 저장소 초기화, post-commit 훅 구성, `syncsat` alias 추가, 최초 rsync 수행으로 Windows 경로 생성 확인.
+- 2025-10-18: Flutter 프로젝트 초기화 완료, 기본 UI 스캐폴딩 작성, 첫 커밋 및 GitHub 저장소 생성 완료 (https://github.com/Eyebottle/sat-lec-rec).
+  - WSL Flutter SDK 3.35.6 설치
+  - 의존성 37개 패키지 추가
+  - VSCode/안드로이드 스튜디오 Dart SDK 설정
+  - 동기화 스크립트 개선 (checksync, qsync 추가)
+  - M0 마일스톤 완료: 프로젝트 초기 설정
