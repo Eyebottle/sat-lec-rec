@@ -68,3 +68,16 @@
   - VSCode/안드로이드 스튜디오 Dart SDK 설정
   - 동기화 스크립트 개선 (checksync, qsync 추가)
   - M0 마일스톤 완료: 프로젝트 초기 설정
+- 2025-10-21: M1 Phase 1.1 FFI 기초 구조 구축 완료, M1 Phase 1.2 FFmpeg 런타임 통합 시도
+  - C++ FFmpegRunner 클래스 구현 (ffmpeg_runner.h/cpp)
+  - Dart FFI 바인딩 구현 (native_bindings.dart)
+  - FFmpeg 경로 해결 시도 (5회 빌드, 모두 실패)
+- 2025-10-22: **M1 Phase 1.2 아키텍처 재설계** (C++ FFI → Flutter 패키지)
+  - C++ FFI 방식의 FFmpeg 경로 해결 문제 지속 (fs::exists 실패)
+  - eyebottlelee 프로젝트 참고: `record` 패키지 사용 확인
+  - **새로운 방향**: `desktop_screen_recorder` 패키지 기반 재설계 결정
+  - 문서 업데이트:
+    - `m1-phase-1.2-ffmpeg-integration.md`: 전면 재작성 (v2.0)
+    - `development-roadmap.md`: Phase 1.2/1.3 수정
+    - `developing.md`: 진행 로그 추가
+  - **다음 작업**: 기존 C++ FFI 코드 제거 → RecorderService 구현

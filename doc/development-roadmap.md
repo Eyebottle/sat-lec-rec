@@ -51,35 +51,44 @@ flutter run -d windows
 
 ---
 
-#### 1.2 FFmpeg 런타임 통합 (3일)
+#### 1.2 화면 녹화 패키지 통합 (3일) - **아키텍처 재설계**
 
 **체크리스트**:
-- [ ] **[L0]** FFmpeg 실행 파일 경로 설정 (`third_party/ffmpeg/`)
-- [ ] **[L0]** Dart에서 FFmpeg 프로세스 실행 헬퍼 작성
-- [ ] **[L0]** FFmpeg 테스트 인코딩 (testsrc → mp4)
+- [ ] **[L0]** ~~FFmpeg 실행 파일 경로 설정~~ → **삭제 (패키지 사용)**
+- [ ] **[L0]** ~~Dart에서 FFmpeg 프로세스 실행~~ → **desktop_screen_recorder 패키지 추가**
+- [ ] **[L0]** ~~FFmpeg 테스트 인코딩~~ → **RecorderService로 10초 테스트 녹화**
+- [ ] **[L0]** **기존 C++ FFI 코드 제거 (ffmpeg_runner, native_recorder_plugin)**
+- [ ] **[L0]** **third_party/ffmpeg/ 폴더 삭제**
 
 **산출물**:
-- `lib/services/ffmpeg_service.dart`
-- `lib/utils/process_helper.dart`
+- ~~`lib/services/ffmpeg_service.dart`~~ → **`lib/services/recorder_service.dart`**
+- ~~`lib/utils/process_helper.dart`~~ → **삭제**
 
 **구현 예시**:
 ```dart
-// lib/services/ffmpeg_service.dart
-class FFmpegService {
-  static Future<bool> testEncode() async {
-    final cmd = [
-      'third_party/ffmpeg/ffmpeg.exe',
-      '-f', 'lavfi',
-      '-i', 'testsrc=size=1280x720:rate=24:duration=5',
-      '-f', 'lavfi',
-      '-i', 'anullsrc=r=48000:cl=stereo',
-      '-c:v', 'h264_nvenc',
-      '-c:a', 'aac',
-      'test_output.mp4',
-    ];
+// lib/services/recorder_service.dart
+class RecorderService {
+  final ScreenRecorder _recorder = ScreenRecorder();
 
-    final result = await Process.run(cmd[0], cmd.sublist(1));
-    return result.exitCode == 0;
+  Future<String?> startRecording({required int durationSeconds}) async {
+    final outputPath = await _generateOutputPath();
+
+    await _recorder.start(
+      outputPath: outputPath,
+      recordAudio: true,
+      fps: 24,
+      quality: RecordingQuality.high,
+    );
+
+    Timer(Duration(seconds: durationSeconds), () async {
+      await stopRecording();
+    });
+
+    return outputPath;
+  }
+
+  Future<String?> stopRecording() async {
+    return await _recorder.stop();
   }
 }
 ```
@@ -87,18 +96,25 @@ class FFmpegService {
 **검증 포인트**:
 ```dart
 // 10초 테스트 버튼 클릭 시
-await FFmpegService.testEncode();
-// test_output.mp4 파일 생성 확인
+await _recorderService.startRecording(durationSeconds: 10);
+// 10초 후 자동 중지, mp4 파일 생성 확인
 ```
+
+**변경 사유**: C++ FFI 경로 해결 실패 (5회 빌드 실패), eyebottlelee 프로젝트 참고
 
 ---
 
-#### 1.3 Named Pipe 기초 (4일)
+#### 1.3 ~~Named Pipe 기초 (4일)~~ → **삭제됨 (패키지가 자동 처리)**
 
-**체크리스트**:
-- [ ] **[L0]** C++에서 Named Pipe 생성 (`\\.\pipe\video`, `\\.\pipe\audio`)
-- [ ] **[L0]** 더미 프레임 데이터를 Pipe에 쓰기
-- [ ] **[L0]** FFmpeg가 Pipe에서 읽어 인코딩하는 흐름 구축
+**~~체크리스트~~** (더 이상 불필요):
+- ~~[ ] **[L0]** C++에서 Named Pipe 생성~~ → **패키지 내부 처리**
+- ~~[ ] **[L0]** 더미 프레임 데이터를 Pipe에 쓰기~~ → **패키지 내부 처리**
+- ~~[ ] **[L0]** FFmpeg가 Pipe에서 읽어 인코딩하는 흐름 구축~~ → **패키지 내부 처리**
+
+**대체 작업**:
+- [ ] **[L0]** desktop_screen_recorder API 문서 확인
+- [ ] **[L0]** 화면 캡처 옵션 설정 (해상도, FPS, 코덱)
+- [ ] **[L0]** 오디오 장치 선택 옵션 확인
 
 **산출물**:
 - `windows/runner/named_pipe_writer.h`

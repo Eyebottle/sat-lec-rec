@@ -1,339 +1,348 @@
-# M1 Phase 1.2: FFmpeg 런타임 통합 계획
+# M1 Phase 1.2: 화면 녹화 패키지 통합 계획 (아키텍처 재설계)
 
-**목표**: C++에서 FFmpeg 프로세스를 실행하고 Named Pipe를 통해 데이터를 전달하는 기초 구조 구축
+**목표**: ~~C++에서 FFmpeg 프로세스 실행~~ → Flutter 패키지(`desktop_screen_recorder`)를 사용한 간소화된 녹화 구현
 
-**예상 소요 시간**: 2~3시간
+**예상 소요 시간**: ~~2~3시간~~ → 4~6시간 (아키텍처 변경 포함)
 
-**의존성**: M0 완료, FFI 기초 동작 확인
+**의존성**: M0 완료, ~~FFI 기초 동작 확인~~ → Flutter 패키지 생태계 활용
+
+**변경 사유**: C++ FFI 기반 FFmpeg 경로 해결 문제 지속 발생, eyebottlelee 프로젝트 참고하여 Flutter 패키지 기반으로 재설계
+
+**작성일**: 2025-10-22 (재설계)
 
 ---
 
-## 1. FFmpeg 바이너리 준비
+## 아키텍처 비교
 
-### 1.1 다운로드
-- **소스**: https://github.com/BtbN/FFmpeg-Builds/releases
-- **버전**: 최신 Release (GPL, full build)
-- **파일**: `ffmpeg-master-latest-win64-gpl.zip`
-
-### 1.2 배치 구조
+### 기존 방식 (C++ FFI + FFmpeg) ❌
 ```
-sat-lec-rec/
-├── third_party/
-│   └── ffmpeg/
-│       ├── ffmpeg.exe
-│       ├── ffprobe.exe
-│       └── README.md  (버전 정보 기록)
-└── .gitignore  (third_party/ffmpeg/*.exe 제외)
+복잡도: Dart → C++ FFI → FFmpeg 프로세스 → Named Pipe → 인코딩
+
+문제점:
+- FFmpeg 경로 해결 실패 (fs::exists 문제, 5회 빌드 실패)
+- 플랫폼 종속적 (Windows 전용)
+- 수동 바이너리 관리 필요 (170MB ffmpeg.exe)
+- 복잡한 디버깅
+- 6개 파일 (C++ 4개, Dart 2개, CMakeLists.txt)
 ```
 
-### 1.3 검증
+### 새로운 방식 (Flutter 패키지) ✅
+```
+단순화: Dart → desktop_screen_recorder → 자동 인코딩
+
+장점:
+- 경로 관리 자동화 (패키지가 처리)
+- 크로스 플랫폼 (Windows/Linux/macOS)
+- FFmpeg 바이너리 불필요
+- 간단한 디버깅
+- eyebottlelee 프로젝트와 동일한 패턴
+- 1-2개 파일 (RecorderService)
+```
+
+---
+
+## 1. 기존 코드 정리 (삭제)
+
+### 1.1 C++ FFI 파일 삭제
 ```bash
-# Windows PowerShell
-cd C:\ws-workspace\sat-lec-rec\third_party\ffmpeg
-.\ffmpeg.exe -version
-.\ffprobe.exe -version
+# 다음 파일들 삭제
+windows/runner/ffmpeg_runner.h
+windows/runner/ffmpeg_runner.cpp
+windows/runner/native_recorder_plugin.h
+windows/runner/native_recorder_plugin.cpp
+lib/ffi/native_bindings.dart
 ```
 
----
-
-## 2. C++ FFmpeg 실행 인프라
-
-### 2.1 파일 구조
-```
-windows/runner/
-├── ffmpeg_runner.h       (새로 생성)
-├── ffmpeg_runner.cpp     (새로 생성)
-├── native_recorder_plugin.h  (기존)
-└── native_recorder_plugin.cpp  (수정)
-```
-
-### 2.2 FFmpegRunner 클래스 설계
-
-#### ffmpeg_runner.h
-```cpp
-#ifndef FFMPEG_RUNNER_H_
-#define FFMPEG_RUNNER_H_
-
-#include <windows.h>
-#include <string>
-
-/// FFmpeg 프로세스 관리 클래스
-///
-/// 책임:
-/// - FFmpeg 바이너리 경로 확인
-/// - 프로세스 생성 및 종료
-/// - Named Pipe 생성 및 관리
-class FFmpegRunner {
- public:
-  FFmpegRunner();
-  ~FFmpegRunner();
-
-  /// FFmpeg 바이너리 존재 여부 확인
-  ///
-  /// @return true if ffmpeg.exe exists
-  bool CheckFFmpegExists();
-
-  /// FFmpeg 프로세스 시작 (테스트용)
-  ///
-  /// @param args 명령줄 인수 (예: "-version")
-  /// @param output_file 출력 파일 경로 (선택)
-  /// @return true if process started successfully
-  bool StartFFmpeg(const std::wstring& args, const std::wstring& output_file = L"");
-
-  /// FFmpeg 프로세스 종료
-  void StopFFmpeg();
-
-  /// FFmpeg 실행 중 여부
-  ///
-  /// @return true if process is running
-  bool IsRunning();
-
- private:
-  PROCESS_INFORMATION process_info_;
-  HANDLE pipe_handle_;
-  bool is_running_;
-
-  /// FFmpeg 실행 파일 경로 획득
-  ///
-  /// @return 절대 경로 (예: C:\...\sat-lec-rec\third_party\ffmpeg\ffmpeg.exe)
-  std::wstring GetFFmpegPath();
-};
-
-#endif  // FFMPEG_RUNNER_H_
-```
-
-#### ffmpeg_runner.cpp (초기 구현)
-```cpp
-#include "ffmpeg_runner.h"
-#include <shlwapi.h>
-#include <filesystem>
-
-#pragma comment(lib, "shlwapi.lib")
-
-namespace fs = std::filesystem;
-
-FFmpegRunner::FFmpegRunner()
-    : process_info_{}, pipe_handle_(INVALID_HANDLE_VALUE), is_running_(false) {}
-
-FFmpegRunner::~FFmpegRunner() {
-  StopFFmpeg();
-}
-
-std::wstring FFmpegRunner::GetFFmpegPath() {
-  // 실행 파일의 디렉토리 획득
-  wchar_t exe_path[MAX_PATH];
-  GetModuleFileNameW(NULL, exe_path, MAX_PATH);
-
-  fs::path exe_dir = fs::path(exe_path).parent_path();
-  fs::path ffmpeg_path = exe_dir / "data" / "flutter_assets" / "assets" / "ffmpeg" / "ffmpeg.exe";
-
-  // 개발 환경: 프로젝트 루트에서 상대 경로
-  if (!fs::exists(ffmpeg_path)) {
-    ffmpeg_path = exe_dir.parent_path().parent_path() / "third_party" / "ffmpeg" / "ffmpeg.exe";
-  }
-
-  return ffmpeg_path.wstring();
-}
-
-bool FFmpegRunner::CheckFFmpegExists() {
-  std::wstring path = GetFFmpegPath();
-  return fs::exists(path);
-}
-
-bool FFmpegRunner::StartFFmpeg(const std::wstring& args, const std::wstring& output_file) {
-  if (is_running_) {
-    return false;
-  }
-
-  std::wstring ffmpeg_path = GetFFmpegPath();
-  if (!fs::exists(ffmpeg_path)) {
-    return false;
-  }
-
-  // 명령줄 구성
-  std::wstring cmdline = L"\"" + ffmpeg_path + L"\" " + args;
-  if (!output_file.empty()) {
-    cmdline += L" \"" + output_file + L"\"";
-  }
-
-  // 프로세스 시작
-  STARTUPINFOW si = {};
-  si.cb = sizeof(si);
-  si.dwFlags = STARTF_USESTDHANDLES;
-
-  BOOL success = CreateProcessW(
-    NULL,
-    const_cast<LPWSTR>(cmdline.c_str()),
-    NULL, NULL, FALSE, CREATE_NO_WINDOW,
-    NULL, NULL, &si, &process_info_
-  );
-
-  if (success) {
-    is_running_ = true;
-    return true;
-  }
-
-  return false;
-}
-
-void FFmpegRunner::StopFFmpeg() {
-  if (!is_running_) {
-    return;
-  }
-
-  TerminateProcess(process_info_.hProcess, 0);
-  CloseHandle(process_info_.hProcess);
-  CloseHandle(process_info_.hThread);
-
-  is_running_ = false;
-}
-
-bool FFmpegRunner::IsRunning() {
-  if (!is_running_) {
-    return false;
-  }
-
-  DWORD exit_code;
-  if (GetExitCodeProcess(process_info_.hProcess, &exit_code)) {
-    if (exit_code != STILL_ACTIVE) {
-      is_running_ = false;
-      return false;
-    }
-  }
-
-  return true;
-}
-```
-
-### 2.3 Dart FFI 바인딩 추가
-
-#### lib/ffi/native_bindings.dart (수정)
-```dart
-// 기존 import 유지
-import 'dart:ffi';
-import 'dart:io';
-import 'package:ffi/ffi.dart';
-
-// 새로운 typedef 추가
-typedef CheckFFmpegNative = Int8 Function();
-typedef CheckFFmpegDart = int Function();
-
-class NativeRecorder {
-  // 기존 코드 유지
-  static late DynamicLibrary _dylib;
-  static late NativeHelloDart _nativeHello;
-  static late CheckFFmpegDart _checkFFmpeg;
-  static bool _initialized = false;
-
-  static void initialize() {
-    if (_initialized) return;
-
-    if (!Platform.isWindows) {
-      throw UnsupportedError('This platform is not supported. Windows only.');
-    }
-
-    _dylib = DynamicLibrary.executable();
-
-    // 기존 함수
-    _nativeHello = _dylib
-        .lookup<NativeFunction<NativeHelloNative>>('NativeHello')
-        .asFunction();
-
-    // 새 함수: FFmpeg 체크
-    _checkFFmpeg = _dylib
-        .lookup<NativeFunction<CheckFFmpegNative>>('CheckFFmpegExists')
-        .asFunction();
-
-    _initialized = true;
-  }
-
-  // 기존 hello() 유지
-  static String hello() {
-    // ...
-  }
-
-  /// FFmpeg 바이너리 존재 여부 확인
-  ///
-  /// @return true if ffmpeg.exe exists
-  static bool checkFFmpeg() {
-    if (!_initialized) {
-      throw StateError('NativeRecorder not initialized. Call initialize() first.');
-    }
-    return _checkFFmpeg() == 1;
-  }
-}
-```
-
-### 2.4 C++ Export 함수 추가
-
-#### windows/runner/native_recorder_plugin.cpp (수정)
-```cpp
-#include "native_recorder_plugin.h"
-#include "ffmpeg_runner.h"
-
-extern "C" {
-
-// 기존 함수 유지
-__declspec(dllexport) const char* NativeHello() {
-    return "Hello from C++ Native Plugin!";
-}
-
-// 새 함수: FFmpeg 체크
-__declspec(dllexport) int CheckFFmpegExists() {
-    FFmpegRunner runner;
-    return runner.CheckFFmpegExists() ? 1 : 0;
-}
-
-}  // extern "C"
-```
-
----
-
-## 3. CMakeLists.txt 수정
-
-### windows/runner/CMakeLists.txt
+### 1.2 CMakeLists.txt 원복
 ```cmake
-# 기존 코드 유지, add_executable에 파일 추가
-add_executable(${BINARY_NAME} WIN32
-  "flutter_window.cpp"
-  "main.cpp"
-  "utils.cpp"
-  "win32_window.cpp"
-  "native_recorder_plugin.cpp"
-  "ffmpeg_runner.cpp"  # 추가
-  "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
-  "Runner.rc"
-  "runner.exe.manifest"
-)
+# windows/runner/CMakeLists.txt
+# ffmpeg_runner.cpp, native_recorder_plugin.cpp 제거
+# Flutter 기본 구조로 복원
+```
+
+### 1.3 main.dart FFI 코드 제거
+```dart
+// lib/main.dart에서 제거
+// NativeRecorder.initialize();
+// NativeRecorder.hello();
+// NativeRecorder.checkFFmpeg();
+// NativeRecorder.getFFmpegPath();
+```
+
+### 1.4 FFmpeg 바이너리 삭제
+```bash
+# third_party/ffmpeg/ 폴더 전체 삭제 (더 이상 불필요)
+rm -rf third_party/ffmpeg/
 ```
 
 ---
 
-## 4. UI 테스트 화면 추가
+## 2. Flutter 패키지 추가
 
-### lib/main.dart (수정)
+### 2.1 pubspec.yaml 수정
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 기존 패키지들...
+  window_manager: ^0.5.1
+  system_tray: ^2.0.3
+  shared_preferences: ^2.3.2
+  logger: ^2.4.0
+  cron: ^0.5.1
+
+  # 새로 추가: 화면 녹화 패키지
+  desktop_screen_recorder: ^0.1.0  # 최신 버전 확인 필요
+```
+
+### 2.2 패키지 정보 확인
+**desktop_screen_recorder** (pub.dev)
+- Windows/Linux/macOS 지원
+- H.264 MP4 인코딩 (네이티브 API 사용)
+- 최소 CPU 부하
+- FFmpeg 내장 (별도 배포 불필요)
+
+### 2.3 패키지 설치
+```bash
+# WSL에서 실행
+cd ~/projects/sat-lec-rec
+flutter pub get
+```
+
+---
+
+## 3. RecorderService 구현
+
+### 3.1 파일 구조
+```
+lib/
+├── main.dart
+├── services/
+│   └── recorder_service.dart  (새로 생성)
+└── models/
+    └── recording_session.dart  (선택: 메타데이터 관리)
+```
+
+### 3.2 RecorderService 기본 구조
+
+#### lib/services/recorder_service.dart
 ```dart
-// main() 함수의 FFI 테스트 부분 수정
+// lib/services/recorder_service.dart
+// 화면 + 오디오 녹화 서비스
+//
+// 목적: desktop_screen_recorder 패키지를 사용하여 화면과 오디오를 동시에 녹화
+// 작성일: 2025-10-22
+
+import 'dart:async';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:desktop_screen_recorder/desktop_screen_recorder.dart';
+import 'package:logger/logger.dart';
+
+final logger = Logger(
+  printer: PrettyPrinter(
+    methodCount: 0,
+    errorMethodCount: 5,
+    lineLength: 80,
+    colors: true,
+    printEmojis: true,
+  ),
+);
+
+/// 화면 + 오디오 녹화 서비스
+///
+/// desktop_screen_recorder 패키지를 사용하여 간단하게 구현
+class RecorderService {
+  final ScreenRecorder _recorder = ScreenRecorder();
+  bool _isRecording = false;
+  DateTime? _sessionStartTime;
+
+  /// 녹화 중 여부
+  bool get isRecording => _isRecording;
+
+  /// 녹화 시작
+  ///
+  /// @param duration 녹화 시간 (초 단위)
+  /// @return 저장된 파일 경로
+  Future<String?> startRecording({required int durationSeconds}) async {
+    if (_isRecording) {
+      logger.w('이미 녹화 중입니다');
+      return null;
+    }
+
+    try {
+      logger.i('🎬 녹화 시작 요청 ($durationSeconds초)');
+
+      // 저장 경로 생성
+      final outputPath = await _generateOutputPath();
+      logger.i('📁 저장 경로: $outputPath');
+
+      // 녹화 시작
+      await _recorder.start(
+        outputPath: outputPath,
+        recordAudio: true,  // 오디오 포함
+        fps: 24,            // 24fps
+        quality: RecordingQuality.high,
+      );
+
+      _isRecording = true;
+      _sessionStartTime = DateTime.now();
+      logger.i('✅ 녹화 시작 완료');
+
+      // N초 후 자동 중지
+      Timer(Duration(seconds: durationSeconds), () async {
+        await stopRecording();
+      });
+
+      return outputPath;
+    } catch (e, stackTrace) {
+      logger.e('❌ 녹화 시작 실패', error: e, stackTrace: stackTrace);
+      _isRecording = false;
+      rethrow;
+    }
+  }
+
+  /// 녹화 중지
+  ///
+  /// @return 저장된 파일 경로
+  Future<String?> stopRecording() async {
+    if (!_isRecording) {
+      logger.w('녹화 중이 아닙니다');
+      return null;
+    }
+
+    try {
+      logger.i('⏹️  녹화 중지 요청');
+
+      // 녹화 중지
+      final filePath = await _recorder.stop();
+      _isRecording = false;
+
+      // 통계 출력
+      if (_sessionStartTime != null) {
+        final duration = DateTime.now().difference(_sessionStartTime!);
+        logger.i('📊 세션 통계:');
+        logger.i('  - 시작 시각: ${_sessionStartTime!.toIso8601String()}');
+        logger.i('  - 총 녹화 시간: ${duration.inSeconds}초');
+      }
+      _sessionStartTime = null;
+
+      // 파일 정보
+      if (filePath != null) {
+        final file = File(filePath);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          logger.i('📁 파일 저장 완료');
+          logger.i('  - 경로: $filePath');
+          logger.i('  - 크기: ${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB');
+        }
+      }
+
+      logger.i('✅ 녹화 중지 완료');
+      return filePath;
+    } catch (e, stackTrace) {
+      logger.e('❌ 녹화 중지 실패', error: e, stackTrace: stackTrace);
+      _isRecording = false;
+      rethrow;
+    }
+  }
+
+  /// 저장 파일 경로 생성
+  ///
+  /// @return 절대 경로 (예: D:/SaturdayZoomRec/20251022_0835_test.mp4)
+  Future<String> _generateOutputPath() async {
+    // TODO: 설정에서 저장 경로 가져오기 (SharedPreferences)
+    // 현재는 Documents 폴더 사용
+    final documentsDir = await getApplicationDocumentsDirectory();
+    final recordingDir = Directory('${documentsDir.path}/SaturdayZoomRec');
+
+    // 폴더 생성 (없으면)
+    if (!await recordingDir.exists()) {
+      await recordingDir.create(recursive: true);
+    }
+
+    // 파일명 생성: YYYYMMDD_HHMM_test.mp4
+    final now = DateTime.now();
+    final filename = '${_formatDate(now)}_${_formatTime(now)}_test.mp4';
+
+    return '${recordingDir.path}/$filename';
+  }
+
+  /// 날짜 포맷 (YYYYMMDD)
+  String _formatDate(DateTime dt) {
+    return '${dt.year}${_twoDigits(dt.month)}${_twoDigits(dt.day)}';
+  }
+
+  /// 시간 포맷 (HHMM)
+  String _formatTime(DateTime dt) {
+    return '${_twoDigits(dt.hour)}${_twoDigits(dt.minute)}';
+  }
+
+  /// 두 자리 숫자 포맷
+  String _twoDigits(int n) => n.toString().padLeft(2, '0');
+
+  /// 리소스 정리
+  void dispose() {
+    _recorder.dispose();
+  }
+}
+```
+
+---
+
+## 4. UI 연동
+
+### 4.1 main.dart 수정
+```dart
+// lib/main.dart
+import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
+import 'services/recorder_service.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  try {
-    NativeRecorder.initialize();
-    final message = NativeRecorder.hello();
-    logger.i('FFI 테스트 성공: $message');
+  // Window 관리 초기화 (기존 코드 유지)
+  await windowManager.ensureInitialized();
+  // ... (기존 windowOptions 코드)
 
-    // FFmpeg 체크 추가
-    final ffmpegExists = NativeRecorder.checkFFmpeg();
-    if (ffmpegExists) {
-      logger.i('✅ FFmpeg 바이너리 확인됨');
-    } else {
-      logger.w('⚠️ FFmpeg 바이너리를 찾을 수 없습니다');
-    }
-  } catch (e, stackTrace) {
-    logger.e('FFI 초기화 실패', error: e, stackTrace: stackTrace);
+  runApp(const MyApp());
+}
+
+// ... (MyApp, MainScreen 기존 코드)
+
+// _MainScreenState에 RecorderService 추가
+class _MainScreenState extends State<MainScreen> with WindowListener {
+  final RecorderService _recorderService = RecorderService();
+
+  @override
+  void dispose() {
+    _recorderService.dispose();
+    windowManager.removeListener(this);
+    super.dispose();
   }
 
-  // ... 나머지 코드 유지
+  // "10초 테스트" 버튼 핸들러 수정
+  void _onTestRecordingPressed() async {
+    try {
+      final filePath = await _recorderService.startRecording(
+        durationSeconds: 10,
+      );
+
+      if (filePath != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('10초 녹화 시작: $filePath')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('녹화 시작 실패: $e')),
+      );
+    }
+  }
+
+  // ... (기존 build 메서드, 버튼 onPressed에 _onTestRecordingPressed 연결)
 }
 ```
 
@@ -341,48 +350,108 @@ void main() async {
 
 ## 5. 테스트 시나리오
 
-### 5.1 FFmpeg 바이너리 없는 상태
-1. `third_party/ffmpeg/` 폴더가 비어있는 상태로 빌드
-2. 앱 실행 시 로그 확인: `⚠️ FFmpeg 바이너리를 찾을 수 없습니다`
+### 5.1 패키지 설치 확인
+```bash
+# WSL
+cd ~/projects/sat-lec-rec
+flutter pub get
 
-### 5.2 FFmpeg 바이너리 배치 후
-1. FFmpeg 다운로드 및 배치
-2. 앱 재실행
-3. 로그 확인: `✅ FFmpeg 바이너리 확인됨`
+# Windows (동기화 후)
+cd C:\ws-workspace\sat-lec-rec
+flutter pub get
+```
 
-### 5.3 FFmpeg 버전 테스트 (다음 단계)
-1. UI에 "FFmpeg 버전 확인" 버튼 추가
-2. C++에서 `ffmpeg -version` 실행
-3. 결과를 Dart로 전달하여 UI에 표시
+### 5.2 빌드 테스트
+```bash
+# Windows
+cd C:\ws-workspace\sat-lec-rec
+flutter build windows --debug
+```
+
+### 5.3 10초 녹화 테스트
+```
+1. 앱 실행
+2. "10초 테스트" 버튼 클릭
+3. 로그 확인:
+   - "🎬 녹화 시작 요청 (10초)"
+   - "📁 저장 경로: ..."
+   - "✅ 녹화 시작 완료"
+4. 10초 대기
+5. 로그 확인:
+   - "⏹️  녹화 중지 요청"
+   - "📊 세션 통계: ..."
+   - "📁 파일 저장 완료"
+   - "✅ 녹화 중지 완료"
+6. 파일 탐색기에서 mp4 파일 확인
+7. VLC로 재생: 화면 + 소리 확인
+```
 
 ---
 
 ## 6. 체크리스트
 
-- [ ] FFmpeg 바이너리 다운로드 및 배치
-- [ ] `ffmpeg_runner.h` 생성
-- [ ] `ffmpeg_runner.cpp` 생성
-- [ ] `native_recorder_plugin.cpp` 수정 (CheckFFmpegExists 추가)
-- [ ] `lib/ffi/native_bindings.dart` 수정 (checkFFmpeg 추가)
-- [ ] `lib/main.dart` 수정 (FFmpeg 체크 로그 추가)
-- [ ] `CMakeLists.txt` 수정 (ffmpeg_runner.cpp 추가)
-- [ ] `.gitignore` 업데이트 (*.exe 제외)
+### Phase 1: 기존 코드 정리
+- [ ] `windows/runner/ffmpeg_runner.*` 삭제
+- [ ] `windows/runner/native_recorder_plugin.*` 삭제
+- [ ] `lib/ffi/native_bindings.dart` 삭제
+- [ ] `windows/runner/CMakeLists.txt` 원복
+- [ ] `lib/main.dart`에서 FFI 코드 제거
+- [ ] `third_party/ffmpeg/` 폴더 삭제
+
+### Phase 2: 패키지 통합
+- [ ] `pubspec.yaml`에 `desktop_screen_recorder` 추가
+- [ ] `flutter pub get` 실행 (WSL & Windows)
+- [ ] `lib/services/recorder_service.dart` 생성
+- [ ] RecorderService 기본 구조 구현
+
+### Phase 3: UI 연동
+- [ ] `lib/main.dart`에 RecorderService 추가
+- [ ] "10초 테스트" 버튼 핸들러 연결
+- [ ] 녹화 상태 UI 업데이트 (선택)
+
+### Phase 4: 테스트
 - [ ] WSL → Windows 동기화
-- [ ] Windows에서 빌드 및 실행
-- [ ] 로그 확인: FFmpeg 바이너리 존재 여부
+- [ ] Windows에서 빌드 (`flutter build windows --debug`)
+- [ ] 10초 녹화 테스트 성공
+- [ ] MP4 파일 생성 및 재생 확인
+- [ ] 로그 확인 (정상 흐름)
 
 ---
 
-## 7. 다음 단계 (Phase 1.3)
+## 7. 예상 효과
 
-- Named Pipe 생성 및 테스트
-- FFmpeg 프로세스에 stdin으로 데이터 전달
-- 간단한 테스트 영상 인코딩 (컬러바 패턴 → MP4)
+| 항목 | 기존 방식 (C++ FFI) | 새로운 방식 (Flutter 패키지) |
+|------|-------------------|--------------------------|
+| **코드 복잡도** | 6개 파일, C++ + Dart | 1-2개 파일, Dart만 |
+| **경로 관리** | 수동 (실패함) | 자동 (패키지가 처리) |
+| **FFmpeg 배포** | 필요 (170MB) | 불필요 (패키지 내장) |
+| **디버깅 난이도** | 매우 어려움 | 쉬움 |
+| **크로스 플랫폼** | Windows만 | Windows/Linux/macOS |
+| **개발 속도** | 느림 (5회 실패) | 빠름 (eyebottlelee 참고) |
+
+---
+
+## 8. 다음 단계 (Phase 1.3)
+
+- ~~Named Pipe 생성 및 테스트~~ → 패키지가 자동 처리
+- ~~FFmpeg 프로세스에 stdin으로 데이터 전달~~ → 패키지가 자동 처리
+- **Zoom 창 타깃 캡처** (desktop_screen_recorder API 확인)
+- **오디오 장치 선택** (Loopback + 마이크 믹스)
+- **세그먼트 저장** (45분 단위 분할)
 
 ---
 
 ## 참고 자료
 
-- [FFmpeg Windows Builds](https://github.com/BtbN/FFmpeg-Builds)
-- [Windows CreateProcess 문서](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw)
-- [Named Pipes 가이드](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipes)
+### Flutter 패키지
+- [desktop_screen_recorder - pub.dev](https://pub.dev/packages/desktop_screen_recorder)
+- [record - pub.dev](https://pub.dev/packages/record) (eyebottlelee 프로젝트 사용)
+
+### 참고 프로젝트
+- eyebottlelee (`~/projects/eyebottlelee`): `record` 패키지 사용한 오디오 녹음 구현
+
+---
+
+**작성일**: 2025-10-22
+**버전**: v2.0 (아키텍처 재설계)
+**작성자**: AI 협업 (Claude Code)
