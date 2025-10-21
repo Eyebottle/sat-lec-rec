@@ -29,14 +29,19 @@ std::wstring FFmpegRunner::GetFFmpegPath() {
 
   fs::path exe_dir = fs::path(exe_path).parent_path();
 
-  // 배포 환경: {exe_dir}/data/flutter_assets/assets/ffmpeg/ffmpeg.exe
-  fs::path ffmpeg_path = exe_dir / "data" / "flutter_assets" / "assets" / "ffmpeg" / "ffmpeg.exe";
-
-  // 개발 환경: {project_root}/third_party/ffmpeg/ffmpeg.exe
+  // 개발 환경 우선: {project_root}/third_party/ffmpeg/ffmpeg.exe
   // exe_dir = {project_root}/build/windows/x64/runner/Debug (또는 Release)
   // project_root = exe_dir/../../../../
+  fs::path ffmpeg_path = exe_dir.parent_path().parent_path().parent_path().parent_path()
+                         / "third_party" / "ffmpeg" / "ffmpeg.exe";
+
+  // 절대 경로로 정규화
+  ffmpeg_path = fs::absolute(ffmpeg_path);
+
+  // 개발 환경에 없으면 배포 환경 폴백
   if (!fs::exists(ffmpeg_path)) {
-    ffmpeg_path = exe_dir.parent_path().parent_path().parent_path().parent_path() / "third_party" / "ffmpeg" / "ffmpeg.exe";
+    ffmpeg_path = exe_dir / "data" / "flutter_assets" / "assets" / "ffmpeg" / "ffmpeg.exe";
+    ffmpeg_path = fs::absolute(ffmpeg_path);
   }
 
   return ffmpeg_path.wstring();
@@ -44,7 +49,21 @@ std::wstring FFmpegRunner::GetFFmpegPath() {
 
 bool FFmpegRunner::CheckFFmpegExists() {
   std::wstring path = GetFFmpegPath();
-  return fs::exists(path);
+
+  // 디버그 로깅
+  OutputDebugStringW(L"[FFmpeg] Checking path: ");
+  OutputDebugStringW(path.c_str());
+  OutputDebugStringW(L"\n");
+
+  bool exists = fs::exists(path);
+
+  if (exists) {
+    OutputDebugStringW(L"[FFmpeg] ✓ File EXISTS\n");
+  } else {
+    OutputDebugStringW(L"[FFmpeg] ✗ File NOT FOUND\n");
+  }
+
+  return exists;
 }
 
 bool FFmpegRunner::StartFFmpeg(const std::wstring& args, const std::wstring& output_file) {
