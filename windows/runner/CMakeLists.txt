@@ -31,6 +31,11 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTT
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
+# Force UTF-8 encoding for source files (fixes Korean comments issue)
+if(MSVC)
+  target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
+endif()
+
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
