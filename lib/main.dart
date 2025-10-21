@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:logger/logger.dart';
+import 'ffi/native_bindings.dart';
 
 final logger = Logger(
   printer: PrettyPrinter(
@@ -14,6 +15,15 @@ final logger = Logger(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // FFI 초기화 및 테스트
+  try {
+    NativeRecorder.initialize();
+    final message = NativeRecorder.hello();
+    logger.i('FFI 테스트 성공: $message');
+  } catch (e, stackTrace) {
+    logger.e('FFI 초기화 실패', error: e, stackTrace: stackTrace);
+  }
 
   // Window 관리 초기화
   await windowManager.ensureInitialized();
