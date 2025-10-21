@@ -20,6 +20,12 @@ typedef CheckFFmpegExistsNative = Int8 Function();
 /// C++ CheckFFmpegExists 함수 시그니처 (Dart 측)
 typedef CheckFFmpegExistsDart = int Function();
 
+/// C++ GetFFmpegPathDebug 함수 시그니처 (C 측)
+typedef GetFFmpegPathDebugNative = Pointer<Uint16> Function();
+
+/// C++ GetFFmpegPathDebug 함수 시그니처 (Dart 측)
+typedef GetFFmpegPathDebugDart = Pointer<Uint16> Function();
+
 /// 네이티브 레코더 FFI 바인딩 클래스
 ///
 /// C++ 플러그인과 Dart 간 통신을 담당합니다.
@@ -28,6 +34,7 @@ class NativeRecorder {
   static late DynamicLibrary _dylib;
   static late NativeHelloDart _nativeHello;
   static late CheckFFmpegExistsDart _checkFFmpegExists;
+  static late GetFFmpegPathDebugDart _getFFmpegPathDebug;
   static bool _initialized = false;
 
   /// FFI 초기화
@@ -76,6 +83,18 @@ class NativeRecorder {
       );
     }
 
+    // GetFFmpegPathDebug 함수 바인딩
+    try {
+      _getFFmpegPathDebug = _dylib
+          .lookup<NativeFunction<GetFFmpegPathDebugNative>>('GetFFmpegPathDebug')
+          .asFunction();
+    } catch (e) {
+      throw ArgumentError(
+        'Failed to lookup GetFFmpegPathDebug function. '
+        'Error: $e',
+      );
+    }
+
     _initialized = true;
   }
 
@@ -115,6 +134,34 @@ class NativeRecorder {
     }
 
     return _checkFFmpegExists() == 1;
+  }
+
+  /// FFmpeg 경로 가져오기 (디버깅용)
+  ///
+  /// GetFFmpegPathDebug() C++ 함수를 호출하여 실제 탐색 경로를 반환합니다.
+  ///
+  /// @return FFmpeg 경로 (UTF-16 문자열)
+  /// @throws StateError FFI가 초기화되지 않은 경우
+  static String getFFmpegPath() {
+    if (!_initialized) {
+      throw StateError(
+        'NativeRecorder not initialized. Call initialize() first.',
+      );
+    }
+
+    final ptr = _getFFmpegPathDebug();
+
+    // UTF-16 (wchar_t*) 문자열을 Dart String으로 변환
+    final List<int> units = [];
+    int offset = 0;
+    while (true) {
+      final char = ptr.elementAt(offset).value;
+      if (char == 0) break;
+      units.add(char);
+      offset++;
+    }
+
+    return String.fromCharCodes(units);
   }
 
   /// 초기화 여부 확인

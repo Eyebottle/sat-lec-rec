@@ -41,18 +41,18 @@ class FFmpegRunner {
   /// @return true if process is running
   bool IsRunning();
 
- private:
-  PROCESS_INFORMATION process_info_;
-  HANDLE pipe_handle_;
-  bool is_running_;
-
-  /// FFmpeg 실행 파일 경로 획득
+  /// FFmpeg 실행 파일 경로 획득 (디버깅용 public)
   ///
   /// 개발 환경: {project_root}/third_party/ffmpeg/ffmpeg.exe
   /// 배포 환경: {exe_dir}/data/flutter_assets/assets/ffmpeg/ffmpeg.exe
   ///
   /// @return 절대 경로 (wstring)
   std::wstring GetFFmpegPath();
+
+ private:
+  PROCESS_INFORMATION process_info_;
+  HANDLE pipe_handle_;
+  bool is_running_;
 };
 
 #endif  // FFMPEG_RUNNER_H_

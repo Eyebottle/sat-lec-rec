@@ -28,4 +28,15 @@ __declspec(dllexport) int CheckFFmpegExists() {
     return runner.CheckFFmpegExists() ? 1 : 0;
 }
 
+/// FFmpeg 경로 반환 (디버깅용)
+///
+/// FFmpegRunner가 탐색하는 경로를 반환합니다.
+///
+/// @return FFmpeg 경로 (wchar_t*, UTF-16)
+__declspec(dllexport) const wchar_t* GetFFmpegPathDebug() {
+    FFmpegRunner runner;
+    static std::wstring path = runner.GetFFmpegPath();
+    return path.c_str();
+}
+
 }  // extern "C"

@@ -22,6 +22,10 @@ void main() async {
     final message = NativeRecorder.hello();
     logger.i('FFI 테스트 성공: $message');
 
+    // FFmpeg 경로 확인 (디버깅)
+    final ffmpegPath = NativeRecorder.getFFmpegPath();
+    logger.i('🔍 FFmpeg 탐색 경로: $ffmpegPath');
+
     // FFmpeg 바이너리 존재 여부 확인
     final ffmpegExists = NativeRecorder.checkFFmpeg();
     if (ffmpegExists) {

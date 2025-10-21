@@ -17,6 +17,16 @@ extern "C" {
 // @return C 스타일 문자열 포인터 (상수)
 __declspec(dllexport) const char* NativeHello();
 
+// FFmpeg 바이너리 존재 여부 확인
+//
+// @return 1 if exists, 0 if not found
+__declspec(dllexport) int CheckFFmpegExists();
+
+// FFmpeg 경로 반환 (디버깅용)
+//
+// @return FFmpeg 경로 (wchar_t*, UTF-16)
+__declspec(dllexport) const wchar_t* GetFFmpegPathDebug();
+
 #ifdef __cplusplus
 }
 #endif
