@@ -922,12 +922,66 @@ UI 와이어프레임 3장(홈/설정/트레이 상태) — 텍스트 명세 기
 - **L3 (Polish)**: L2에 의존, UX 개선 및 운영 편의성 (M3~M4 선택)
 
 **마일스톤 매핑:**
+- **M0** = 환경 설정 (WSL + Windows 개발 환경 구축)
 - M1 = L0 + L1 (녹화 코어)
 - M2 = L1 + L2 (정시 자동화 + 안정성 기초)
 - M3 = L2 (안정성 강화)
 - M4 = L3 (UX/배포)
 
-- **기본 환경 & 프로젝트 설정**
+**참고 문서:**
+- [M0: 환경 설정 체크리스트](./m0-environment-setup.md)
+- [개발 로드맵 (Phase 1~5)](./development-roadmap.md)
+
+---
+
+### M0: 환경 설정 (개발 시작 전 필수)
+
+**목표**: Windows Desktop에서 Flutter 앱 빌드 및 실행 성공
+
+**예상 소요 시간**: 1.5 ~ 2시간
+
+**자동 검증**: `bash scripts/check_dev_env.sh`
+
+#### WSL 환경
+- [ ] **[M0-WSL-1]** Ubuntu 24.04 설치 및 업데이트
+- [ ] **[M0-WSL-2]** Git, rsync 설치 (`sudo apt install git rsync`)
+- [ ] **[M0-WSL-3]** Flutter SDK 설치 (`~/.local/flutter`)
+- [ ] **[M0-WSL-4]** Flutter PATH 설정 및 `flutter doctor` 정상
+- [ ] **[M0-WSL-5]** Windows Desktop 활성화 (`flutter config --enable-windows-desktop`)
+- [ ] **[M0-WSL-6]** Git 사용자 정보 설정
+
+#### Windows 환경
+- [ ] **[M0-WIN-1]** Flutter SDK 설치 (`C:\flutter`)
+- [ ] **[M0-WIN-2]** Flutter PATH 설정 및 `flutter doctor` 모든 항목 ✓
+- [ ] **[M0-WIN-3]** Visual Studio 2022 설치 (Desktop development with C++ 워크로드)
+- [ ] **[M0-WIN-4]** Windows Defender 예외 추가 (선택)
+
+#### FFmpeg 설정
+- [ ] **[M0-FFM-1]** FFmpeg 64bit 다운로드 (https://github.com/BtbN/FFmpeg-Builds/releases)
+- [ ] **[M0-FFM-2]** `ffmpeg.exe`, `ffprobe.exe`를 `C:\ws-workspace\sat-lec-rec\third_party\ffmpeg\` 배치
+- [ ] **[M0-FFM-3]** `ffmpeg -version` 실행 테스트 성공
+
+#### 프로젝트 초기화
+- [ ] **[M0-PRJ-1]** 프로젝트 클론 (`git clone git@github.com:Eyebottle/sat-lec-rec.git`)
+- [ ] **[M0-PRJ-2]** Git safe.directory 설정
+- [ ] **[M0-PRJ-3]** `flutter pub get` 성공
+- [ ] **[M0-PRJ-4]** WSL → Windows 동기화 테스트 (`syncsat`)
+- [ ] **[M0-PRJ-5]** Windows에서 `flutter run -d windows` 성공 (앱 창 표시)
+
+#### FFI 기초 검증
+- [ ] **[M0-FFI-1]** C++ 헤더/구현 파일 생성 (`windows/runner/native_recorder_plugin.h/cpp`)
+- [ ] **[M0-FFI-2]** Dart FFI 바인딩 생성 (`lib/ffi/native_bindings.dart`)
+- [ ] **[M0-FFI-3]** `main.dart`에서 `NativeHello()` 호출
+- [ ] **[M0-FFI-4]** CMakeLists.txt 수정 (C++ 파일 추가)
+- [ ] **[M0-FFI-5]** 빌드 후 로그에 "Hello from C++ Native Plugin!" 출력 확인
+
+**M0 완료 기준**: 모든 항목 ✓ + `scripts/check_dev_env.sh` 통과
+
+---
+
+### L0-L3: 기능 구현 체크리스트
+
+- **기본 환경 & 프로젝트 설정** *(의존: M0 완료)*
   - [ ] **[L0]** Flutter Windows 데스크톱 타깃 활성화 및 기본 빌드 확인 (`flutter config --enable-windows-desktop`) (FR 전반)
   - [ ] **[L0]** dart:ffi 스캐폴딩 구성, Dart↔C++ 메시지 샘플 교신 확인 (섹션 9.1)
   - [ ] **[L0]** FFmpeg 런타임(64bit) 번들 구조 설계, 실행 권한/경로 확인 (섹션 9.2)
