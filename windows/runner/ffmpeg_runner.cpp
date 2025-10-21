@@ -29,22 +29,22 @@ std::wstring FFmpegRunner::GetFFmpegPath() {
 
   fs::path exe_dir = fs::path(exe_path).parent_path();
 
-  // 개발 환경 우선: {project_root}/third_party/ffmpeg/ffmpeg.exe
+  // 개발 환경: {project_root}/third_party/ffmpeg/ffmpeg.exe
   // exe_dir = {project_root}/build/windows/x64/runner/Debug (또는 Release)
-  // project_root = exe_dir/../../../../
-  fs::path ffmpeg_path = exe_dir.parent_path().parent_path().parent_path().parent_path()
-                         / "third_party" / "ffmpeg" / "ffmpeg.exe";
+  // 상대 경로로 4단계 상위 이동
+  fs::path dev_path = exe_dir / ".." / ".." / ".." / ".." / "third_party" / "ffmpeg" / "ffmpeg.exe";
 
-  // 절대 경로로 정규화
-  ffmpeg_path = fs::absolute(ffmpeg_path);
+  // 경로 정규화 (.. 제거)
+  dev_path = dev_path.lexically_normal();
 
-  // 개발 환경에 없으면 배포 환경 폴백
-  if (!fs::exists(ffmpeg_path)) {
-    ffmpeg_path = exe_dir / "data" / "flutter_assets" / "assets" / "ffmpeg" / "ffmpeg.exe";
-    ffmpeg_path = fs::absolute(ffmpeg_path);
+  // 개발 환경 경로가 존재하면 사용
+  if (fs::exists(dev_path)) {
+    return fs::absolute(dev_path).wstring();
   }
 
-  return ffmpeg_path.wstring();
+  // 배포 환경 폴백: {exe_dir}/data/flutter_assets/assets/ffmpeg/ffmpeg.exe
+  fs::path deploy_path = exe_dir / "data" / "flutter_assets" / "assets" / "ffmpeg" / "ffmpeg.exe";
+  return fs::absolute(deploy_path).wstring();
 }
 
 bool FFmpegRunner::CheckFFmpegExists() {
