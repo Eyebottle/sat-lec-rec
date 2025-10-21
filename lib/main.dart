@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:logger/logger.dart';
-import 'ffi/native_bindings.dart';
 
 final logger = Logger(
   printer: PrettyPrinter(
@@ -15,28 +14,6 @@ final logger = Logger(
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // FFI 초기화 및 테스트
-  try {
-    NativeRecorder.initialize();
-    final message = NativeRecorder.hello();
-    logger.i('FFI 테스트 성공: $message');
-
-    // FFmpeg 경로 확인 (디버깅)
-    final ffmpegPath = NativeRecorder.getFFmpegPath();
-    logger.i('🔍 FFmpeg 탐색 경로: $ffmpegPath');
-
-    // FFmpeg 바이너리 존재 여부 확인
-    final ffmpegExists = NativeRecorder.checkFFmpeg();
-    if (ffmpegExists) {
-      logger.i('✅ FFmpeg 바이너리 확인됨');
-    } else {
-      logger.w('⚠️  FFmpeg 바이너리를 찾을 수 없습니다');
-      logger.w('   third_party/ffmpeg/ 폴더에 ffmpeg.exe를 배치하세요');
-    }
-  } catch (e, stackTrace) {
-    logger.e('FFI 초기화 실패', error: e, stackTrace: stackTrace);
-  }
 
   // Window 관리 초기화
   await windowManager.ensureInitialized();
