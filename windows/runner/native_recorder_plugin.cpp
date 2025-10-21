@@ -5,6 +5,7 @@
 // 작성일: 2025-10-21
 
 #include "native_recorder_plugin.h"
+#include "ffmpeg_runner.h"
 
 extern "C" {
 
@@ -15,6 +16,16 @@ extern "C" {
 /// @return 상수 문자열 "Hello from C++ Native Plugin!"
 __declspec(dllexport) const char* NativeHello() {
     return "Hello from C++ Native Plugin!";
+}
+
+/// FFmpeg 바이너리 존재 여부 확인
+///
+/// FFmpegRunner를 사용하여 ffmpeg.exe 파일이 존재하는지 확인합니다.
+///
+/// @return 1 if exists, 0 if not found
+__declspec(dllexport) int CheckFFmpegExists() {
+    FFmpegRunner runner;
+    return runner.CheckFFmpegExists() ? 1 : 0;
 }
 
 }  // extern "C"

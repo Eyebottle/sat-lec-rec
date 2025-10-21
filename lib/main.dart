@@ -21,6 +21,15 @@ void main() async {
     NativeRecorder.initialize();
     final message = NativeRecorder.hello();
     logger.i('FFI 테스트 성공: $message');
+
+    // FFmpeg 바이너리 존재 여부 확인
+    final ffmpegExists = NativeRecorder.checkFFmpeg();
+    if (ffmpegExists) {
+      logger.i('✅ FFmpeg 바이너리 확인됨');
+    } else {
+      logger.w('⚠️  FFmpeg 바이너리를 찾을 수 없습니다');
+      logger.w('   third_party/ffmpeg/ 폴더에 ffmpeg.exe를 배치하세요');
+    }
   } catch (e, stackTrace) {
     logger.e('FFI 초기화 실패', error: e, stackTrace: stackTrace);
   }

@@ -14,6 +14,12 @@ typedef NativeHelloNative = Pointer<Utf8> Function();
 /// C++ NativeHello 함수 시그니처 (Dart 측)
 typedef NativeHelloDart = Pointer<Utf8> Function();
 
+/// C++ CheckFFmpegExists 함수 시그니처 (C 측)
+typedef CheckFFmpegExistsNative = Int8 Function();
+
+/// C++ CheckFFmpegExists 함수 시그니처 (Dart 측)
+typedef CheckFFmpegExistsDart = int Function();
+
 /// 네이티브 레코더 FFI 바인딩 클래스
 ///
 /// C++ 플러그인과 Dart 간 통신을 담당합니다.
@@ -21,6 +27,7 @@ typedef NativeHelloDart = Pointer<Utf8> Function();
 class NativeRecorder {
   static late DynamicLibrary _dylib;
   static late NativeHelloDart _nativeHello;
+  static late CheckFFmpegExistsDart _checkFFmpegExists;
   static bool _initialized = false;
 
   /// FFI 초기화
@@ -56,6 +63,19 @@ class NativeRecorder {
       );
     }
 
+    // CheckFFmpegExists 함수 바인딩
+    try {
+      _checkFFmpegExists = _dylib
+          .lookup<NativeFunction<CheckFFmpegExistsNative>>('CheckFFmpegExists')
+          .asFunction();
+    } catch (e) {
+      throw ArgumentError(
+        'Failed to lookup CheckFFmpegExists function. '
+        'Ensure ffmpeg_runner.cpp is included in CMakeLists.txt. '
+        'Error: $e',
+      );
+    }
+
     _initialized = true;
   }
 
@@ -79,6 +99,22 @@ class NativeRecorder {
     final result = ptr.cast<Utf8>().toDartString();
 
     return result;
+  }
+
+  /// FFmpeg 바이너리 존재 여부 확인
+  ///
+  /// CheckFFmpegExists() C++ 함수를 호출하여 ffmpeg.exe가 존재하는지 확인합니다.
+  ///
+  /// @return true if ffmpeg.exe exists
+  /// @throws StateError FFI가 초기화되지 않은 경우
+  static bool checkFFmpeg() {
+    if (!_initialized) {
+      throw StateError(
+        'NativeRecorder not initialized. Call initialize() first.',
+      );
+    }
+
+    return _checkFFmpegExists() == 1;
   }
 
   /// 초기화 여부 확인
