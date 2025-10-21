@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:logger/logger.dart';
+import 'services/recorder_service.dart';
 
 final logger = Logger(
   printer: PrettyPrinter(
@@ -72,6 +73,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WindowListener {
+  final RecorderService _recorderService = RecorderService();
+
   @override
   void initState() {
     super.initState();
@@ -80,6 +83,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   @override
   void dispose() {
+    _recorderService.dispose();
     windowManager.removeListener(this);
     super.dispose();
   }
@@ -201,12 +205,32 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                         ),
                         const SizedBox(width: 16),
                         ElevatedButton.icon(
-                          onPressed: () {
-                            logger.i('10초 테스트 버튼 클릭');
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('10초 테스트 기능 준비 중...')),
-                            );
-                          },
+                          onPressed: _recorderService.isRecording
+                              ? null
+                              : () async {
+                                  logger.i('10초 테스트 버튼 클릭');
+                                  try {
+                                    final filePath = await _recorderService.startRecording(
+                                      durationSeconds: 10,
+                                    );
+
+                                    if (filePath != null && mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('10초 녹화 시작\n$filePath'),
+                                          duration: const Duration(seconds: 3),
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    logger.e('녹화 시작 실패', error: e);
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('녹화 시작 실패: $e')),
+                                      );
+                                    }
+                                  }
+                                },
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('10초 테스트'),
                           style: ElevatedButton.styleFrom(
