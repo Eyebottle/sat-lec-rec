@@ -6,6 +6,7 @@
 
 import 'dart:ffi';
 import 'dart:io';
+import 'package:ffi/ffi.dart';
 
 /// C++ NativeHello 함수 시그니처 (C 측)
 typedef NativeHelloNative = Pointer<Utf8> Function();
