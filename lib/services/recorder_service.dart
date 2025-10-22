@@ -8,6 +8,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
+import 'package:ffi/ffi.dart';
+import '../ffi/native_bindings.dart';
 
 final _logger = Logger(
   printer: PrettyPrinter(
@@ -21,22 +23,42 @@ final _logger = Logger(
 
 /// 화면 + 오디오 녹화 서비스
 ///
-/// Windows Native API를 FFI로 호출하여 구현 (TODO: FFI 바인딩 연결 필요)
+/// Windows Native API를 FFI로 호출하여 구현
 class RecorderService {
-  // TODO: FFI 바인딩 추가 후 네이티브 함수 연결
-  bool _isRecording = false;
+  bool _isInitialized = false;
   DateTime? _sessionStartTime;
   String? _currentFilePath;
 
   /// 녹화 중 여부
-  bool get isRecording => _isRecording;
+  bool get isRecording {
+    if (!_isInitialized) return false;
+    return NativeRecorderBindings.isRecording() == 1;
+  }
+
+  /// 초기화
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+
+    final result = NativeRecorderBindings.initialize();
+    if (result != 0) {
+      final error = getNativeLastError();
+      throw Exception('네이티브 녹화 초기화 실패: $error');
+    }
+
+    _isInitialized = true;
+    _logger.i('✅ 네이티브 녹화 초기화 완료');
+  }
 
   /// 녹화 시작
   ///
   /// @param durationSeconds 녹화 시간 (초 단위)
   /// @return 저장된 파일 경로
   Future<String?> startRecording({required int durationSeconds}) async {
-    if (_isRecording) {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    if (isRecording) {
       _logger.w('이미 녹화 중입니다');
       return null;
     }
@@ -48,13 +70,27 @@ class RecorderService {
       final outputPath = await _generateOutputPath();
       _logger.i('📁 저장 경로: $outputPath');
 
-      // TODO: 네이티브 녹화 시작 함수 호출
-      // await _nativeStartRecording(outputPath);
+      // 네이티브 녹화 시작
+      final pathPtr = outputPath.toNativeUtf8();
+      try {
+        final result = NativeRecorderBindings.startRecording(
+          pathPtr,
+          1920,  // TODO: 설정에서 가져오기
+          1080,
+          24,    // FPS
+        );
 
-      _isRecording = true;
+        if (result != 0) {
+          final error = getNativeLastError();
+          throw Exception('네이티브 녹화 시작 실패: $error');
+        }
+      } finally {
+        malloc.free(pathPtr);
+      }
+
       _sessionStartTime = DateTime.now();
       _currentFilePath = outputPath;
-      _logger.i('✅ 녹화 시작 완료 (스텁 - 실제 녹화 미구현)');
+      _logger.i('✅ 녹화 시작 완료');
 
       // N초 후 자동 중지
       Timer(Duration(seconds: durationSeconds), () async {
@@ -64,7 +100,6 @@ class RecorderService {
       return outputPath;
     } catch (e, stackTrace) {
       _logger.e('❌ 녹화 시작 실패', error: e, stackTrace: stackTrace);
-      _isRecording = false;
       rethrow;
     }
   }
@@ -73,7 +108,7 @@ class RecorderService {
   ///
   /// @return 저장된 파일 경로
   Future<String?> stopRecording() async {
-    if (!_isRecording) {
+    if (!isRecording) {
       _logger.w('녹화 중이 아닙니다');
       return null;
     }
@@ -81,10 +116,12 @@ class RecorderService {
     try {
       _logger.i('⏹️  녹화 중지 요청');
 
-      // TODO: 네이티브 녹화 중지 함수 호출
-      // await _nativeStopRecording();
-
-      _isRecording = false;
+      // 네이티브 녹화 중지
+      final result = NativeRecorderBindings.stopRecording();
+      if (result != 0) {
+        final error = getNativeLastError();
+        throw Exception('네이티브 녹화 중지 실패: $error');
+      }
 
       // 통계 출력
       if (_sessionStartTime != null) {
@@ -95,19 +132,25 @@ class RecorderService {
       }
       _sessionStartTime = null;
 
-      // 파일 정보 (스텁 상태에서는 파일이 실제로 생성되지 않음)
+      // 파일 정보
       final filePath = _currentFilePath;
       if (filePath != null) {
-        _logger.i('📁 파일 저장 예정 경로: $filePath');
-        _logger.i('  (실제 파일 생성은 네이티브 구현 후)');
+        final file = File(filePath);
+        if (await file.exists()) {
+          final fileSize = await file.length();
+          _logger.i('📁 파일 저장 완료');
+          _logger.i('  - 경로: $filePath');
+          _logger.i('  - 크기: ${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB');
+        } else {
+          _logger.w('⚠️  파일이 생성되지 않음: $filePath');
+        }
       }
 
-      _logger.i('✅ 녹화 중지 완료 (스텁)');
+      _logger.i('✅ 녹화 중지 완료');
       _currentFilePath = null;
       return filePath;
     } catch (e, stackTrace) {
       _logger.e('❌ 녹화 중지 실패', error: e, stackTrace: stackTrace);
-      _isRecording = false;
       rethrow;
     }
   }
@@ -148,7 +191,10 @@ class RecorderService {
 
   /// 리소스 정리
   void dispose() {
-    // TODO: 네이티브 리소스 정리 함수 호출
-    // _nativeDispose();
+    if (_isInitialized) {
+      NativeRecorderBindings.cleanup();
+      _isInitialized = false;
+      _logger.i('✅ 네이티브 녹화 리소스 정리 완료');
+    }
   }
 }
