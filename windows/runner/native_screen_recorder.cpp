@@ -61,6 +61,10 @@ static void CaptureThreadFunc(
     }
 }
 
+// ========== C 인터페이스 구현 (extern "C" 링크) ==========
+
+extern "C" {
+
 // 녹화 초기화
 int32_t NativeRecorder_Initialize() {
     try {
@@ -155,3 +159,5 @@ const char* NativeRecorder_GetLastError() {
     std::lock_guard<std::mutex> lock(g_error_mutex);
     return g_last_error.c_str();
 }
+
+}  // extern "C"
