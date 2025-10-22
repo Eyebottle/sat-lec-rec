@@ -21,6 +21,10 @@ add_executable(${BINARY_NAME} WIN32
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+# Enable symbol exports from the executable for Flutter FFI
+# This allows DynamicLibrary.executable() to find native functions
+set_target_properties(${BINARY_NAME} PROPERTIES ENABLE_EXPORTS ON)
+
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")

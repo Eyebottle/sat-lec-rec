@@ -9,13 +9,21 @@
 
 #include <stdint.h>
 
+// Windows DLL/EXE export 지시자
+// Flutter FFI가 DynamicLibrary.executable()로 심볼을 찾을 수 있도록 함
+#if defined(_WIN32)
+  #define NATIVE_RECORDER_EXPORT __declspec(dllexport)
+#else
+  #define NATIVE_RECORDER_EXPORT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /// 녹화 초기화
 /// @return 성공 시 0, 실패 시 에러 코드
-int32_t NativeRecorder_Initialize();
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_Initialize();
 
 /// 녹화 시작
 /// @param output_path 저장할 MP4 파일 경로 (UTF-8)
@@ -23,7 +31,7 @@ int32_t NativeRecorder_Initialize();
 /// @param height 녹화 해상도 높이
 /// @param fps 프레임률
 /// @return 성공 시 0, 실패 시 에러 코드
-int32_t NativeRecorder_StartRecording(
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_StartRecording(
     const char* output_path,
     int32_t width,
     int32_t height,
@@ -32,18 +40,18 @@ int32_t NativeRecorder_StartRecording(
 
 /// 녹화 중지
 /// @return 성공 시 0, 실패 시 에러 코드
-int32_t NativeRecorder_StopRecording();
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_StopRecording();
 
 /// 녹화 중 여부 확인
 /// @return 녹화 중이면 1, 아니면 0
-int32_t NativeRecorder_IsRecording();
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_IsRecording();
 
 /// 리소스 정리
-void NativeRecorder_Cleanup();
+NATIVE_RECORDER_EXPORT void NativeRecorder_Cleanup();
 
 /// 마지막 에러 메시지 가져오기
 /// @return UTF-8 인코딩된 에러 메시지 (수명은 다음 호출까지 유효)
-const char* NativeRecorder_GetLastError();
+NATIVE_RECORDER_EXPORT const char* NativeRecorder_GetLastError();
 
 #ifdef __cplusplus
 }
