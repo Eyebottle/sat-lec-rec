@@ -49,8 +49,8 @@ dependencies:
   # Startup management
   launch_at_startup: 0.5.1
 
-  # Screen recording (새로 추가 - desktop_screen_recorder)
-  desktop_screen_recorder: any  # 최신 버전 자동 선택
+  # FFI for native C++ integration
+  ffi: ^2.1.0
 
   # Path utilities
   path: ^1.9.1

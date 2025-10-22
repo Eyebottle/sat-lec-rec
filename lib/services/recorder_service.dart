@@ -1,13 +1,12 @@
 // lib/services/recorder_service.dart
 // 화면 + 오디오 녹화 서비스
 //
-// 목적: desktop_screen_recorder 패키지를 사용하여 화면과 오디오를 동시에 녹화
+// 목적: Windows Native API(Graphics Capture + WASAPI)를 FFI로 호출하여 화면과 오디오를 동시에 녹화
 // 작성일: 2025-10-22
 
 import 'dart:async';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:desktop_screen_recorder/desktop_screen_recorder.dart';
 import 'package:logger/logger.dart';
 
 final _logger = Logger(
@@ -22,11 +21,12 @@ final _logger = Logger(
 
 /// 화면 + 오디오 녹화 서비스
 ///
-/// desktop_screen_recorder 패키지를 사용하여 간단하게 구현
+/// Windows Native API를 FFI로 호출하여 구현 (TODO: FFI 바인딩 연결 필요)
 class RecorderService {
-  final ScreenRecorder _recorder = ScreenRecorder();
+  // TODO: FFI 바인딩 추가 후 네이티브 함수 연결
   bool _isRecording = false;
   DateTime? _sessionStartTime;
+  String? _currentFilePath;
 
   /// 녹화 중 여부
   bool get isRecording => _isRecording;
@@ -48,17 +48,13 @@ class RecorderService {
       final outputPath = await _generateOutputPath();
       _logger.i('📁 저장 경로: $outputPath');
 
-      // 녹화 시작
-      await _recorder.start(
-        outputPath: outputPath,
-        recordAudio: true,  // 오디오 포함
-        fps: 24,            // 24fps
-        quality: RecordingQuality.high,
-      );
+      // TODO: 네이티브 녹화 시작 함수 호출
+      // await _nativeStartRecording(outputPath);
 
       _isRecording = true;
       _sessionStartTime = DateTime.now();
-      _logger.i('✅ 녹화 시작 완료');
+      _currentFilePath = outputPath;
+      _logger.i('✅ 녹화 시작 완료 (스텁 - 실제 녹화 미구현)');
 
       // N초 후 자동 중지
       Timer(Duration(seconds: durationSeconds), () async {
@@ -85,8 +81,9 @@ class RecorderService {
     try {
       _logger.i('⏹️  녹화 중지 요청');
 
-      // 녹화 중지
-      final filePath = await _recorder.stop();
+      // TODO: 네이티브 녹화 중지 함수 호출
+      // await _nativeStopRecording();
+
       _isRecording = false;
 
       // 통계 출력
@@ -98,18 +95,15 @@ class RecorderService {
       }
       _sessionStartTime = null;
 
-      // 파일 정보
+      // 파일 정보 (스텁 상태에서는 파일이 실제로 생성되지 않음)
+      final filePath = _currentFilePath;
       if (filePath != null) {
-        final file = File(filePath);
-        if (await file.exists()) {
-          final fileSize = await file.length();
-          _logger.i('📁 파일 저장 완료');
-          _logger.i('  - 경로: $filePath');
-          _logger.i('  - 크기: ${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB');
-        }
+        _logger.i('📁 파일 저장 예정 경로: $filePath');
+        _logger.i('  (실제 파일 생성은 네이티브 구현 후)');
       }
 
-      _logger.i('✅ 녹화 중지 완료');
+      _logger.i('✅ 녹화 중지 완료 (스텁)');
+      _currentFilePath = null;
       return filePath;
     } catch (e, stackTrace) {
       _logger.e('❌ 녹화 중지 실패', error: e, stackTrace: stackTrace);
@@ -154,6 +148,7 @@ class RecorderService {
 
   /// 리소스 정리
   void dispose() {
-    _recorder.dispose();
+    // TODO: 네이티브 리소스 정리 함수 호출
+    // _nativeDispose();
   }
 }
