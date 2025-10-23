@@ -20,19 +20,9 @@
 #include <queue>
 #include <condition_variable>
 
-// C++/WinRT 헤더 (Windows Graphics Capture API)
-#include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Graphics.Capture.h>
-#include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
-
+// DXGI Desktop Duplication API 헤더
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "windowsapp.lib")  // C++/WinRT 필요
-
-// C++/WinRT 네임스페이스
-using namespace winrt;
-using namespace Windows::Graphics::Capture;
-using namespace Windows::Graphics::DirectX::Direct3D11;
 
 // 전역 상태
 static std::atomic<bool> g_is_recording(false);
@@ -45,6 +35,9 @@ static ID3D11Device* g_d3d_device = nullptr;
 static ID3D11DeviceContext* g_d3d_context = nullptr;
 static ID3D11Texture2D* g_staging_texture = nullptr;
 static bool g_com_initialized = false;
+
+// DXGI Desktop Duplication 관련
+static IDXGIOutputDuplication* g_dxgi_duplication = nullptr;
 
 // 프레임 데이터 구조
 struct FrameData {
@@ -125,6 +118,88 @@ static void CleanupD3D11() {
     }
 }
 
+// DXGI Desktop Duplication 초기화
+static bool InitializeDXGIDuplication() {
+    HRESULT hr;
+
+    // 1. DXGI 어댑터 가져오기
+    printf("[C++] 1/4: DXGI 어댑터 가져오기...\n");
+    fflush(stdout);
+
+    IDXGIDevice* dxgi_device = nullptr;
+    hr = g_d3d_device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi_device);
+    if (FAILED(hr)) {
+        printf("[C++] ❌ DXGI 디바이스 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("DXGI 디바이스 가져오기 실패");
+        return false;
+    }
+
+    IDXGIAdapter* dxgi_adapter = nullptr;
+    hr = dxgi_device->GetAdapter(&dxgi_adapter);
+    dxgi_device->Release();
+    if (FAILED(hr)) {
+        printf("[C++] ❌ DXGI 어댑터 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("DXGI 어댑터 가져오기 실패");
+        return false;
+    }
+
+    // 2. 주 출력(모니터) 가져오기
+    printf("[C++] 2/4: 주 모니터 출력 가져오기...\n");
+    fflush(stdout);
+
+    IDXGIOutput* dxgi_output = nullptr;
+    hr = dxgi_adapter->EnumOutputs(0, &dxgi_output);  // 첫 번째 모니터
+    dxgi_adapter->Release();
+    if (FAILED(hr)) {
+        printf("[C++] ❌ DXGI 출력 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("DXGI 출력 가져오기 실패");
+        return false;
+    }
+
+    // 3. IDXGIOutput1로 변환
+    printf("[C++] 3/4: IDXGIOutput1 변환...\n");
+    fflush(stdout);
+
+    IDXGIOutput1* dxgi_output1 = nullptr;
+    hr = dxgi_output->QueryInterface(__uuidof(IDXGIOutput1), (void**)&dxgi_output1);
+    dxgi_output->Release();
+    if (FAILED(hr)) {
+        printf("[C++] ❌ IDXGIOutput1 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("IDXGIOutput1 가져오기 실패");
+        return false;
+    }
+
+    // 4. Desktop Duplication 생성
+    printf("[C++] 4/4: Desktop Duplication 생성...\n");
+    fflush(stdout);
+
+    hr = dxgi_output1->DuplicateOutput(g_d3d_device, &g_dxgi_duplication);
+    dxgi_output1->Release();
+    if (FAILED(hr)) {
+        printf("[C++] ❌ Desktop Duplication 생성 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("Desktop Duplication 생성 실패");
+        return false;
+    }
+
+    printf("[C++] ✅ Desktop Duplication 생성 성공\n");
+    fflush(stdout);
+
+    return true;
+}
+
+// DXGI Duplication 리소스 정리
+static void CleanupDXGIDuplication() {
+    if (g_dxgi_duplication) {
+        g_dxgi_duplication->Release();
+        g_dxgi_duplication = nullptr;
+    }
+}
+
 // 프레임 큐에 추가 (나중에 FrameArrived에서 사용)
 [[maybe_unused]] static void EnqueueFrame(const FrameData& frame) {
     std::lock_guard<std::mutex> lock(g_queue_mutex);
@@ -152,44 +227,147 @@ static void CleanupD3D11() {
     return frame;
 }
 
-// 녹화 스레드 함수 (스텁 - 실제 캡처 로직은 Phase 2에서 구현)
+// 프레임 캡처 (DXGI Desktop Duplication)
+static bool CaptureFrame() {
+    HRESULT hr;
+    DXGI_OUTDUPL_FRAME_INFO frame_info;
+    IDXGIResource* desktop_resource = nullptr;
+
+    // 1. 프레임 가져오기 (타임아웃 100ms)
+    hr = g_dxgi_duplication->AcquireNextFrame(100, &frame_info, &desktop_resource);
+    if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+        return true;  // 타임아웃은 정상 (새 프레임 없음)
+    }
+    if (FAILED(hr)) {
+        SetLastError("프레임 가져오기 실패");
+        return false;
+    }
+
+    // 2. ID3D11Texture2D로 변환
+    ID3D11Texture2D* desktop_texture = nullptr;
+    hr = desktop_resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&desktop_texture);
+    desktop_resource->Release();
+    if (FAILED(hr)) {
+        g_dxgi_duplication->ReleaseFrame();
+        SetLastError("Texture 변환 실패");
+        return false;
+    }
+
+    // 3. Staging Texture로 복사 (GPU → CPU)
+    D3D11_TEXTURE2D_DESC desc;
+    desktop_texture->GetDesc(&desc);
+
+    if (!g_staging_texture) {
+        // Staging Texture 생성 (최초 1회)
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        desc.MiscFlags = 0;
+        g_d3d_device->CreateTexture2D(&desc, nullptr, &g_staging_texture);
+    }
+
+    g_d3d_context->CopyResource(g_staging_texture, desktop_texture);
+    desktop_texture->Release();
+
+    // 4. CPU 메모리로 읽기
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    hr = g_d3d_context->Map(g_staging_texture, 0, D3D11_MAP_READ, 0, &mapped);
+    if (SUCCEEDED(hr)) {
+        FrameData frame;
+        frame.width = desc.Width;
+        frame.height = desc.Height;
+
+        // 픽셀 데이터 복사 (행 단위)
+        size_t pixel_count = desc.Width * desc.Height * 4;  // BGRA
+        frame.pixels.resize(pixel_count);
+
+        uint8_t* src = (uint8_t*)mapped.pData;
+        uint8_t* dst = frame.pixels.data();
+
+        for (UINT y = 0; y < desc.Height; y++) {
+            memcpy(dst + y * desc.Width * 4, src + y * mapped.RowPitch, desc.Width * 4);
+        }
+
+        g_d3d_context->Unmap(g_staging_texture, 0);
+
+        // 타임스탬프 설정
+        LARGE_INTEGER qpc;
+        QueryPerformanceCounter(&qpc);
+        frame.timestamp = qpc.QuadPart;
+
+        // 프레임 큐에 추가
+        EnqueueFrame(frame);
+    }
+
+    // 5. 프레임 해제
+    g_dxgi_duplication->ReleaseFrame();
+
+    return true;
+}
+
+// 녹화 스레드 함수
 static void CaptureThreadFunc(
     std::string output_path,
     int32_t width,
     int32_t height,
     int32_t fps
 ) {
-    // TODO Phase 2.1: Windows Graphics Capture API 초기화
-    // - GraphicsCaptureSession 생성
-    // - Direct3D11CaptureFramePool 설정
-    // - FrameArrived 이벤트 핸들러 등록
+    // DXGI Desktop Duplication 초기화
+    printf("[C++] DXGI Desktop Duplication 초기화 시작...\n");
+    fflush(stdout);
+
+    if (!InitializeDXGIDuplication()) {
+        printf("[C++] ❌ Desktop Duplication 초기화 실패\n");
+        fflush(stdout);
+        SetLastError("Desktop Duplication 초기화 실패");
+        g_is_recording = false;
+        return;
+    }
+
+    printf("[C++] ✅ DXGI Desktop Duplication 초기화 완료\n");
+    fflush(stdout);
 
     // TODO Phase 2.2: WASAPI Loopback 초기화
-    // - IMMDeviceEnumerator로 기본 오디오 장치 가져오기
-    // - IAudioClient 초기화
-    // - IAudioCaptureClient로 오디오 데이터 캡처
-
     // TODO Phase 2.3: Media Foundation 인코더 설정
-    // - IMFSinkWriter 생성 (MP4 출력)
-    // - H.264 비디오 스트림 추가
-    // - AAC 오디오 스트림 추가
 
-    // TODO Phase 2.4: 메인 캡처 루프
-    // 임시: 프레임 버퍼 테스트 (경고 제거용)
-    // 실제 구현 시 FrameArrived에서 EnqueueFrame() 호출
-    (void)output_path;  // 미사용 경고 제거
+    // 임시: 매개변수 미사용 경고 제거
+    (void)output_path;
     (void)width;
     (void)height;
     (void)fps;
 
-    // 현재는 스텁: 단순히 대기만 함
-    while (g_is_recording) {
-        Sleep(100);  // 100ms 대기
+    // 메인 캡처 루프
+    int frame_count = 0;
+    printf("[C++] 프레임 캡처 루프 시작...\n");
+    fflush(stdout);
 
-        // 프레임 큐 함수는 나중에 FrameArrived에서 사용 예정
-        // (void)EnqueueFrame;  // 함수 참조로 경고 제거
-        // (void)DequeueFrame;
+    while (g_is_recording) {
+        if (CaptureFrame()) {
+            frame_count++;
+            if (frame_count == 1) {
+                printf("[C++] 🎬 첫 번째 프레임 캡처 성공!\n");
+                fflush(stdout);
+            }
+            if (frame_count % 24 == 0) {  // 1초마다 로그 (24fps 기준)
+                printf("[C++] 📊 캡처된 프레임: %d\n", frame_count);
+                fflush(stdout);
+            }
+        } else {
+            // 캡처 실패 시 루프 종료
+            printf("[C++] ❌ 프레임 캡처 실패, 루프 종료 (총 %d 프레임)\n", frame_count);
+            fflush(stdout);
+            g_is_recording = false;
+            break;
+        }
     }
+
+    printf("[C++] 캡처 루프 종료, 총 %d 프레임 캡처됨\n", frame_count);
+    fflush(stdout);
+
+    // 정리
+    CleanupDXGIDuplication();
+    printf("[C++] DXGI 리소스 정리 완료\n");
+    fflush(stdout);
 }
 
 // ========== C 인터페이스 구현 (extern "C" 링크) ==========
@@ -212,9 +390,6 @@ int32_t NativeRecorder_Initialize() {
             SetLastError("D3D11 디바이스 생성 실패");
             return -2;
         }
-
-        // Windows Runtime 초기화 (C++/WinRT)
-        init_apartment();
 
         SetLastError("");
         return 0;  // 성공
@@ -295,6 +470,9 @@ void NativeRecorder_Cleanup() {
     if (g_is_recording) {
         NativeRecorder_StopRecording();
     }
+
+    // DXGI Duplication 리소스 정리
+    CleanupDXGIDuplication();
 
     // Direct3D11 리소스 정리
     CleanupD3D11();
