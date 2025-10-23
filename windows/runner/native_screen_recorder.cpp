@@ -20,13 +20,19 @@
 #include <queue>
 #include <condition_variable>
 
-// TODO Phase 2.1: C++/WinRT 헤더 추가 (GraphicsCapture 사용)
-// #include <winrt/Windows.Foundation.h>
-// #include <winrt/Windows.Graphics.Capture.h>
-// #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
+// C++/WinRT 헤더 (Windows Graphics Capture API)
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Graphics.Capture.h>
+#include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "windowsapp.lib")  // C++/WinRT 필요
+
+// C++/WinRT 네임스페이스
+using namespace winrt;
+using namespace Windows::Graphics::Capture;
+using namespace Windows::Graphics::DirectX::Direct3D11;
 
 // 전역 상태
 static std::atomic<bool> g_is_recording(false);
@@ -119,8 +125,8 @@ static void CleanupD3D11() {
     }
 }
 
-// 프레임 큐에 추가
-static void EnqueueFrame(const FrameData& frame) {
+// 프레임 큐에 추가 (나중에 FrameArrived에서 사용)
+[[maybe_unused]] static void EnqueueFrame(const FrameData& frame) {
     std::lock_guard<std::mutex> lock(g_queue_mutex);
 
     if (g_frame_queue.size() >= MAX_QUEUE_SIZE) {
@@ -132,8 +138,8 @@ static void EnqueueFrame(const FrameData& frame) {
     g_queue_cv.notify_one();
 }
 
-// 프레임 큐에서 가져오기
-static FrameData DequeueFrame() {
+// 프레임 큐에서 가져오기 (나중에 인코더 스레드에서 사용)
+[[maybe_unused]] static FrameData DequeueFrame() {
     std::unique_lock<std::mutex> lock(g_queue_mutex);
     g_queue_cv.wait(lock, [] {
         return !g_frame_queue.empty() || !g_is_recording;
@@ -169,13 +175,20 @@ static void CaptureThreadFunc(
     // - AAC 오디오 스트림 추가
 
     // TODO Phase 2.4: 메인 캡처 루프
-    // - 화면 프레임 → H.264 인코딩
-    // - 오디오 샘플 → AAC 인코딩
-    // - Fragmented MP4로 실시간 저장
+    // 임시: 프레임 버퍼 테스트 (경고 제거용)
+    // 실제 구현 시 FrameArrived에서 EnqueueFrame() 호출
+    (void)output_path;  // 미사용 경고 제거
+    (void)width;
+    (void)height;
+    (void)fps;
 
     // 현재는 스텁: 단순히 대기만 함
     while (g_is_recording) {
         Sleep(100);  // 100ms 대기
+
+        // 프레임 큐 함수는 나중에 FrameArrived에서 사용 예정
+        // (void)EnqueueFrame;  // 함수 참조로 경고 제거
+        // (void)DequeueFrame;
     }
 }
 
@@ -200,9 +213,8 @@ int32_t NativeRecorder_Initialize() {
             return -2;
         }
 
-        // TODO Phase 2.1: Windows Runtime 초기화 (Windows.Graphics.Capture)
-        // - init_apartment() 호출
-        // - C++/WinRT 헤더 추가 필요
+        // Windows Runtime 초기화 (C++/WinRT)
+        init_apartment();
 
         SetLastError("");
         return 0;  // 성공

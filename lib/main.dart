@@ -79,7 +79,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    _initializeRecorder();
+    // 빌드 완료 후 초기화 실행
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeRecorder();
+    });
   }
 
   Future<void> _initializeRecorder() async {
