@@ -1,8 +1,8 @@
 // windows/runner/native_screen_recorder.cpp
-// Windows Graphics Capture API + WASAPI를 사용한 화면 + 오디오 녹화 구현
+// DXGI Desktop Duplication + WASAPI Loopback을 사용한 화면 + 오디오 녹화 구현
 //
 // 목적:
-//   1. Graphics Capture API로 화면 캡처
+//   1. DXGI Desktop Duplication으로 화면 캡처
 //   2. WASAPI Loopback으로 오디오 캡처
 //   3. Media Foundation으로 H.264/AAC 인코딩하여 MP4 저장
 //
@@ -13,6 +13,8 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <mmdeviceapi.h>
+#include <audioclient.h>
 #include <string>
 #include <atomic>
 #include <thread>
@@ -23,6 +25,10 @@
 // DXGI Desktop Duplication API 헤더
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
+
+// WASAPI 헤더
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "winmm.lib")
 
 // 전역 상태
 static std::atomic<bool> g_is_recording(false);
@@ -39,6 +45,13 @@ static bool g_com_initialized = false;
 // DXGI Desktop Duplication 관련
 static IDXGIOutputDuplication* g_dxgi_duplication = nullptr;
 
+// WASAPI 오디오 캡처 관련
+static IMMDevice* g_audio_device = nullptr;
+static IAudioClient* g_audio_client = nullptr;
+static IAudioCaptureClient* g_audio_capture_client = nullptr;
+static WAVEFORMATEX* g_wave_format = nullptr;
+static std::thread g_audio_thread;
+
 // 프레임 데이터 구조
 struct FrameData {
     std::vector<uint8_t> pixels;  // BGRA 픽셀 데이터
@@ -47,11 +60,27 @@ struct FrameData {
     uint64_t timestamp;  // QueryPerformanceCounter 값
 };
 
+// 오디오 샘플 데이터 구조
+struct AudioSample {
+    std::vector<uint8_t> data;     // PCM 오디오 데이터
+    uint32_t frame_count;          // 오디오 프레임 수
+    uint32_t sample_rate;          // 샘플레이트 (Hz)
+    uint16_t channels;             // 채널 수 (2 = 스테레오)
+    uint16_t bits_per_sample;      // 비트 깊이
+    uint64_t timestamp;            // QueryPerformanceCounter 값
+};
+
 // 프레임 버퍼 큐
 static std::queue<FrameData> g_frame_queue;
 static std::mutex g_queue_mutex;
 static std::condition_variable g_queue_cv;
 static const size_t MAX_QUEUE_SIZE = 60;  // 최대 60 프레임 (약 2.5초 @ 24fps)
+
+// 오디오 버퍼 큐
+static std::queue<AudioSample> g_audio_queue;
+static std::mutex g_audio_queue_mutex;
+static std::condition_variable g_audio_queue_cv;
+static const size_t MAX_AUDIO_QUEUE_SIZE = 100;  // 최대 100 샘플
 
 // 에러 메시지 설정 헬퍼
 static void SetLastError(const std::string& error) {
@@ -200,6 +229,163 @@ static void CleanupDXGIDuplication() {
     }
 }
 
+// WASAPI 초기화
+static bool InitializeWASAPI() {
+    HRESULT hr;
+
+    printf("[C++] WASAPI 초기화 시작...\n");
+    fflush(stdout);
+
+    // 1. IMMDeviceEnumerator 생성
+    printf("[C++] 1/4: IMMDeviceEnumerator 생성...\n");
+    fflush(stdout);
+
+    IMMDeviceEnumerator* enumerator = nullptr;
+    hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator),
+        nullptr,
+        CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator),
+        (void**)&enumerator
+    );
+    if (FAILED(hr)) {
+        printf("[C++] ❌ IMMDeviceEnumerator 생성 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("IMMDeviceEnumerator 생성 실패");
+        return false;
+    }
+
+    // 2. 기본 렌더 디바이스 가져오기 (스피커)
+    printf("[C++] 2/4: 기본 오디오 장치 가져오기...\n");
+    fflush(stdout);
+
+    hr = enumerator->GetDefaultAudioEndpoint(
+        eRender,      // 렌더 (출력) 장치
+        eConsole,     // 콘솔 역할
+        &g_audio_device
+    );
+    enumerator->Release();
+
+    if (FAILED(hr)) {
+        printf("[C++] ❌ 기본 오디오 장치 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("기본 오디오 장치 가져오기 실패");
+        return false;
+    }
+
+    // 3. IAudioClient 생성
+    printf("[C++] 3/4: IAudioClient 생성...\n");
+    fflush(stdout);
+
+    hr = g_audio_device->Activate(
+        __uuidof(IAudioClient),
+        CLSCTX_ALL,
+        nullptr,
+        (void**)&g_audio_client
+    );
+    if (FAILED(hr)) {
+        printf("[C++] ❌ IAudioClient 생성 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("IAudioClient 생성 실패");
+        return false;
+    }
+
+    // 4. 오디오 포맷 가져오기
+    printf("[C++] 4/4: 오디오 포맷 가져오기...\n");
+    fflush(stdout);
+
+    hr = g_audio_client->GetMixFormat(&g_wave_format);
+    if (FAILED(hr)) {
+        printf("[C++] ❌ 오디오 포맷 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("오디오 포맷 가져오기 실패");
+        return false;
+    }
+
+    printf("[C++] ✅ 오디오 포맷: %d Hz, %d channels, %d bits\n",
+           g_wave_format->nSamplesPerSec,
+           g_wave_format->nChannels,
+           g_wave_format->wBitsPerSample);
+    fflush(stdout);
+
+    // 5. Loopback 모드로 초기화
+    REFERENCE_TIME buffer_duration = 1000 * 10000;  // 100ms in 100-nanosecond units
+
+    hr = g_audio_client->Initialize(
+        AUDCLNT_SHAREMODE_SHARED,        // Shared 모드
+        AUDCLNT_STREAMFLAGS_LOOPBACK,    // Loopback 플래그 (핵심!)
+        buffer_duration,
+        0,
+        g_wave_format,
+        nullptr
+    );
+    if (FAILED(hr)) {
+        printf("[C++] ❌ AudioClient 초기화 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("AudioClient 초기화 실패");
+        return false;
+    }
+
+    // 6. IAudioCaptureClient 가져오기
+    hr = g_audio_client->GetService(
+        __uuidof(IAudioCaptureClient),
+        (void**)&g_audio_capture_client
+    );
+    if (FAILED(hr)) {
+        printf("[C++] ❌ IAudioCaptureClient 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("IAudioCaptureClient 가져오기 실패");
+        return false;
+    }
+
+    // 7. 캡처 시작
+    hr = g_audio_client->Start();
+    if (FAILED(hr)) {
+        printf("[C++] ❌ 오디오 캡처 시작 실패 (HRESULT: 0x%08X)\n", hr);
+        fflush(stdout);
+        SetLastError("오디오 캡처 시작 실패");
+        return false;
+    }
+
+    printf("[C++] ✅ WASAPI 초기화 완료 (Loopback 모드)\n");
+    fflush(stdout);
+
+    return true;
+}
+
+// WASAPI 리소스 정리
+static void CleanupWASAPI() {
+    printf("[C++] WASAPI 리소스 정리 시작...\n");
+    fflush(stdout);
+
+    if (g_audio_client) {
+        g_audio_client->Stop();
+    }
+
+    if (g_audio_capture_client) {
+        g_audio_capture_client->Release();
+        g_audio_capture_client = nullptr;
+    }
+
+    if (g_audio_client) {
+        g_audio_client->Release();
+        g_audio_client = nullptr;
+    }
+
+    if (g_audio_device) {
+        g_audio_device->Release();
+        g_audio_device = nullptr;
+    }
+
+    if (g_wave_format) {
+        CoTaskMemFree(g_wave_format);
+        g_wave_format = nullptr;
+    }
+
+    printf("[C++] ✅ WASAPI 리소스 정리 완료\n");
+    fflush(stdout);
+}
+
 // 프레임 큐에 추가 (나중에 FrameArrived에서 사용)
 [[maybe_unused]] static void EnqueueFrame(const FrameData& frame) {
     std::lock_guard<std::mutex> lock(g_queue_mutex);
@@ -225,6 +411,119 @@ static void CleanupDXGIDuplication() {
     FrameData frame = g_frame_queue.front();
     g_frame_queue.pop();
     return frame;
+}
+
+// 오디오 샘플 큐에 추가
+[[maybe_unused]] static void EnqueueAudioSample(const AudioSample& sample) {
+    std::lock_guard<std::mutex> lock(g_audio_queue_mutex);
+
+    if (g_audio_queue.size() >= MAX_AUDIO_QUEUE_SIZE) {
+        // 큐가 가득 찬 경우: 가장 오래된 샘플 버림
+        g_audio_queue.pop();
+    }
+
+    g_audio_queue.push(sample);
+    g_audio_queue_cv.notify_one();
+}
+
+// 오디오 샘플 큐에서 가져오기
+[[maybe_unused]] static AudioSample DequeueAudioSample() {
+    std::unique_lock<std::mutex> lock(g_audio_queue_mutex);
+    g_audio_queue_cv.wait(lock, [] {
+        return !g_audio_queue.empty() || !g_is_recording;
+    });
+
+    if (g_audio_queue.empty()) return AudioSample{};
+
+    AudioSample sample = g_audio_queue.front();
+    g_audio_queue.pop();
+    return sample;
+}
+
+// 오디오 캡처 루프 (별도 스레드에서 실행)
+static void AudioCaptureThreadFunc() {
+    printf("[C++] 오디오 캡처 스레드 시작...\n");
+    fflush(stdout);
+
+    HRESULT hr;
+    int sample_count = 0;
+
+    while (g_is_recording) {
+        // 사용 가능한 패킷 확인
+        UINT32 packet_length = 0;
+        hr = g_audio_capture_client->GetNextPacketSize(&packet_length);
+        if (FAILED(hr)) {
+            printf("[C++] ❌ GetNextPacketSize 실패 (HRESULT: 0x%08X)\n", hr);
+            fflush(stdout);
+            break;
+        }
+
+        while (packet_length != 0) {
+            // 오디오 데이터 가져오기
+            BYTE* data = nullptr;
+            UINT32 frames_available = 0;
+            DWORD flags = 0;
+
+            hr = g_audio_capture_client->GetBuffer(
+                &data,
+                &frames_available,
+                &flags,
+                nullptr,
+                nullptr
+            );
+
+            if (FAILED(hr)) {
+                printf("[C++] ❌ GetBuffer 실패 (HRESULT: 0x%08X)\n", hr);
+                fflush(stdout);
+                break;
+            }
+
+            // 무음 플래그 확인
+            if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
+                // 오디오 샘플 생성
+                AudioSample sample;
+                sample.frame_count = frames_available;
+                sample.sample_rate = g_wave_format->nSamplesPerSec;
+                sample.channels = g_wave_format->nChannels;
+                sample.bits_per_sample = g_wave_format->wBitsPerSample;
+
+                // 데이터 크기 계산 및 복사
+                UINT32 data_size = frames_available * g_wave_format->nBlockAlign;
+                sample.data.resize(data_size);
+                memcpy(sample.data.data(), data, data_size);
+
+                // 타임스탬프 설정
+                LARGE_INTEGER qpc;
+                QueryPerformanceCounter(&qpc);
+                sample.timestamp = qpc.QuadPart;
+
+                // 큐에 추가
+                EnqueueAudioSample(sample);
+
+                sample_count++;
+                if (sample_count == 1) {
+                    printf("[C++] 🎤 첫 번째 오디오 샘플 캡처 성공! (%d frames)\n", frames_available);
+                    fflush(stdout);
+                }
+                if (sample_count % 100 == 0) {
+                    printf("[C++] 📊 오디오 샘플: %d개 캡처됨\n", sample_count);
+                    fflush(stdout);
+                }
+            }
+
+            // 버퍼 해제
+            g_audio_capture_client->ReleaseBuffer(frames_available);
+
+            // 다음 패킷 확인
+            g_audio_capture_client->GetNextPacketSize(&packet_length);
+        }
+
+        // 10ms 대기 (CPU 절약)
+        Sleep(10);
+    }
+
+    printf("[C++] 오디오 캡처 스레드 종료, 총 %d개 샘플 캡처됨\n", sample_count);
+    fflush(stdout);
 }
 
 // 프레임 캡처 (DXGI Desktop Duplication)
@@ -327,7 +626,19 @@ static void CaptureThreadFunc(
     printf("[C++] ✅ DXGI Desktop Duplication 초기화 완료\n");
     fflush(stdout);
 
-    // TODO Phase 2.2: WASAPI Loopback 초기화
+    // WASAPI Loopback 초기화
+    if (!InitializeWASAPI()) {
+        printf("[C++] ❌ WASAPI 초기화 실패\n");
+        fflush(stdout);
+        SetLastError("WASAPI 초기화 실패");
+        CleanupDXGIDuplication();
+        g_is_recording = false;
+        return;
+    }
+
+    // 오디오 캡처 스레드 시작
+    g_audio_thread = std::thread(AudioCaptureThreadFunc);
+
     // TODO Phase 2.3: Media Foundation 인코더 설정
 
     // 임시: 매개변수 미사용 경고 제거
@@ -364,9 +675,17 @@ static void CaptureThreadFunc(
     printf("[C++] 캡처 루프 종료, 총 %d 프레임 캡처됨\n", frame_count);
     fflush(stdout);
 
+    // 오디오 스레드 종료 대기
+    if (g_audio_thread.joinable()) {
+        printf("[C++] 오디오 스레드 종료 대기...\n");
+        fflush(stdout);
+        g_audio_thread.join();
+    }
+
     // 정리
+    CleanupWASAPI();
     CleanupDXGIDuplication();
-    printf("[C++] DXGI 리소스 정리 완료\n");
+    printf("[C++] 모든 리소스 정리 완료\n");
     fflush(stdout);
 }
 
@@ -470,6 +789,14 @@ void NativeRecorder_Cleanup() {
     if (g_is_recording) {
         NativeRecorder_StopRecording();
     }
+
+    // 오디오 스레드 종료 대기
+    if (g_audio_thread.joinable()) {
+        g_audio_thread.join();
+    }
+
+    // WASAPI 리소스 정리
+    CleanupWASAPI();
 
     // DXGI Duplication 리소스 정리
     CleanupDXGIDuplication();
