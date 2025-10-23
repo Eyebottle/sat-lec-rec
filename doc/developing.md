@@ -81,3 +81,45 @@
     - `development-roadmap.md`: Phase 1.2/1.3 수정
     - `developing.md`: 진행 로그 추가
   - **다음 작업**: 기존 C++ FFI 코드 제거 → RecorderService 구현
+
+- 2025-10-23: **M1 Phase 1.2 완료** (Windows Native API + FFI)
+  - **아키텍처 3차 재설계 (v2.0 → v3.0)**:
+    - `desktop_screen_recorder 0.0.1` 패키지 테스트 → 스켈레톤 코드만 존재 (실제 기능 없음)
+    - Flutter 생태계에 Windows 화면 녹화 패키지 부재 확인
+    - **최종 결정**: Windows Native API(Graphics Capture + WASAPI) C++ 직접 구현
+
+  - **C++ 네이티브 인프라 구축**:
+    - `windows/runner/native_screen_recorder.h/cpp` 작성 (스텁)
+    - 멀티스레드 구조 준비 (캡처 스레드 분리)
+    - 에러 처리 구조 (`GetLastError`)
+    - 6개 FFI 함수 정의 (Initialize, StartRecording, StopRecording, IsRecording, Cleanup, GetLastError)
+
+  - **Dart FFI 바인딩 연결**:
+    - `lib/ffi/native_bindings.dart` 재작성
+    - `RecorderService` 네이티브 통합
+    - UTF-8 문자열 전달, 에러 처리
+
+  - **FFI 심볼 Export 문제 해결**:
+    - 에러: "Failed to lookup symbol 'NativeRecorder_Initialize' (error 127)"
+    - 원인: Windows EXE는 기본적으로 함수를 export하지 않음
+    - 해결:
+      1. `__declspec(dllexport)` 매크로 추가
+      2. CMake `ENABLE_EXPORTS ON` 설정
+      3. `extern "C"` 블록으로 구현부 감싸기
+    - 검증: `flutter run` 10초 테스트 성공
+
+  - **커밋 히스토리**:
+    - `6f28b18`: desktop_screen_recorder 제거, ffi 추가
+    - `788d9ff`: C++ 인프라 추가 (스텁)
+    - `e1e1f8f`: FFI 바인딩 연결
+    - `86fd026`: extern "C" 링크 수정
+    - `3cda7c1`: FFI 심볼 export 설정
+
+  - **학습 교훈**:
+    - CodeX 조언 채택으로 장기적으로 관리 용이한 아키텍처 확보
+    - Flutter 패키지 생태계의 한계 (모바일 중심, 데스크톱 미지원)
+    - Windows FFI export: `__declspec(dllexport)` + `ENABLE_EXPORTS` 필수
+
+  - **현재 상태**: Phase 1.2 완료 (FFI 통신 구축), 실제 캡처는 Phase 2에서 구현
+
+  - **다음 작업**: Phase 2.1 (Graphics Capture API 구현) 문서 작성 및 개발 시작

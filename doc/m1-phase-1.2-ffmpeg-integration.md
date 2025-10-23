@@ -1,20 +1,18 @@
-# M1 Phase 1.2: 화면 녹화 패키지 통합 계획 (아키텍처 재설계)
+# M1 Phase 1.2: 네이티브 화면 녹화 인프라 구축 (아키텍처 v3.0)
 
-**목표**: ~~C++에서 FFmpeg 프로세스 실행~~ → Flutter 패키지(`desktop_screen_recorder`)를 사용한 간소화된 녹화 구현
+**목표**: Windows Native API(Graphics Capture + WASAPI)를 C++로 구현하고 Flutter FFI로 연결
 
-**예상 소요 시간**: ~~2~3시간~~ → 4~6시간 (아키텍처 변경 포함)
+**예상 소요 시간**: 6~8시간 (FFI 심볼 export 문제 해결 포함)
 
-**의존성**: M0 완료, ~~FFI 기초 동작 확인~~ → Flutter 패키지 생태계 활용
+**의존성**: M0 완료, M1 Phase 1.1 FFI 기초 구조 구축
 
-**변경 사유**: C++ FFI 기반 FFmpeg 경로 해결 문제 지속 발생, eyebottlelee 프로젝트 참고하여 Flutter 패키지 기반으로 재설계
-
-**작성일**: 2025-10-22 (재설계)
+**작성일**: 2025-10-23 (3차 재설계)
 
 ---
 
-## 아키텍처 비교
+## 아키텍처 변천사
 
-### 기존 방식 (C++ FFI + FFmpeg) ❌
+### v1.0: C++ FFI + FFmpeg 프로세스 ❌
 ```
 복잡도: Dart → C++ FFI → FFmpeg 프로세스 → Named Pipe → 인코딩
 
@@ -23,435 +21,342 @@
 - 플랫폼 종속적 (Windows 전용)
 - 수동 바이너리 관리 필요 (170MB ffmpeg.exe)
 - 복잡한 디버깅
-- 6개 파일 (C++ 4개, Dart 2개, CMakeLists.txt)
 ```
 
-### 새로운 방식 (Flutter 패키지) ✅
+### v2.0: Flutter 패키지 (desktop_screen_recorder) ❌
 ```
 단순화: Dart → desktop_screen_recorder → 자동 인코딩
 
+문제점:
+- desktop_screen_recorder 0.0.1은 스켈레톤 코드 (실제 기능 없음)
+- getPlatformVersion() 메서드만 구현됨
+- Flutter 생태계에 Windows 화면 녹화 패키지 부재
+```
+
+### v3.0: Windows Native API + FFI (현재 구현) ✅
+```
+구조: Dart FFI → C++ (Graphics Capture + WASAPI) → H.264/AAC → MP4
+
 장점:
-- 경로 관리 자동화 (패키지가 처리)
-- 크로스 플랫폼 (Windows/Linux/macOS)
-- FFmpeg 바이너리 불필요
-- 간단한 디버깅
-- eyebottlelee 프로젝트와 동일한 패턴
-- 1-2개 파일 (RecorderService)
+- 경로 문제 원천 차단 (외부 실행 파일 불필요)
+- 단일 언어 스택 (C++ ↔ Dart FFI)
+- Visual Studio 직접 디버깅 가능
+- 배포 단순화 (단일 EXE)
+- 코드 관리 용이
+
+단점:
+- 초기 구현 시간 증가 (Phase 2.1~2.4로 분산)
+- Windows API 학습 곡선
 ```
 
 ---
 
-## 1. 기존 코드 정리 (삭제)
+## 완료된 작업 (Phase 1.2 기반 구축)
 
-### 1.1 C++ FFI 파일 삭제
-```bash
-# 다음 파일들 삭제
-windows/runner/ffmpeg_runner.h
-windows/runner/ffmpeg_runner.cpp
-windows/runner/native_recorder_plugin.h
-windows/runner/native_recorder_plugin.cpp
-lib/ffi/native_bindings.dart
-```
+### 1. 기존 코드 정리 ✅
 
-### 1.2 CMakeLists.txt 원복
-```cmake
-# windows/runner/CMakeLists.txt
-# ffmpeg_runner.cpp, native_recorder_plugin.cpp 제거
-# Flutter 기본 구조로 복원
-```
+**삭제된 파일**:
+- `windows/runner/ffmpeg_runner.h/cpp`
+- `windows/runner/native_recorder_plugin.h/cpp` (초기 FFI 테스트용)
+- `lib/ffi/native_bindings.dart` (v1 버전)
+- `third_party/ffmpeg/` 폴더 (더 이상 불필요)
 
-### 1.3 main.dart FFI 코드 제거
-```dart
-// lib/main.dart에서 제거
-// NativeRecorder.initialize();
-// NativeRecorder.hello();
-// NativeRecorder.checkFFmpeg();
-// NativeRecorder.getFFmpegPath();
-```
+**복원된 파일**:
+- `windows/runner/CMakeLists.txt` (Flutter 기본 구조로 원복)
+- `lib/main.dart` (FFI 테스트 코드 제거)
 
-### 1.4 FFmpeg 바이너리 삭제
-```bash
-# third_party/ffmpeg/ 폴더 전체 삭제 (더 이상 불필요)
-rm -rf third_party/ffmpeg/
-```
+**커밋**: `ab8b907` "refactor: 기존 C++ FFI 코드 제거"
 
 ---
 
-## 2. Flutter 패키지 추가
+### 2. C++ 네이티브 인프라 구축 ✅
 
-### 2.1 pubspec.yaml 수정
-```yaml
-dependencies:
-  flutter:
-    sdk: flutter
+#### 2.1 헤더 파일 작성
+**파일**: `windows/runner/native_screen_recorder.h`
 
-  # 기존 패키지들...
-  window_manager: ^0.5.1
-  system_tray: ^2.0.3
-  shared_preferences: ^2.3.2
-  logger: ^2.4.0
-  cron: ^0.5.1
+**주요 내용**:
+- `NATIVE_RECORDER_EXPORT` 매크로 정의 (`__declspec(dllexport)`)
+- C 스타일 FFI 인터페이스 선언 (`extern "C"`)
+- 6개 네이티브 함수 export:
+  - `NativeRecorder_Initialize()`
+  - `NativeRecorder_StartRecording()`
+  - `NativeRecorder_StopRecording()`
+  - `NativeRecorder_IsRecording()`
+  - `NativeRecorder_Cleanup()`
+  - `NativeRecorder_GetLastError()`
 
-  # 새로 추가: 화면 녹화 패키지
-  desktop_screen_recorder: ^0.1.0  # 최신 버전 확인 필요
-```
+```cpp
+// 예시
+#define NATIVE_RECORDER_EXPORT __declspec(dllexport)
 
-### 2.2 패키지 정보 확인
-**desktop_screen_recorder** (pub.dev)
-- Windows/Linux/macOS 지원
-- H.264 MP4 인코딩 (네이티브 API 사용)
-- 최소 CPU 부하
-- FFmpeg 내장 (별도 배포 불필요)
-
-### 2.3 패키지 설치
-```bash
-# WSL에서 실행
-cd ~/projects/sat-lec-rec
-flutter pub get
-```
-
----
-
-## 3. RecorderService 구현
-
-### 3.1 파일 구조
-```
-lib/
-├── main.dart
-├── services/
-│   └── recorder_service.dart  (새로 생성)
-└── models/
-    └── recording_session.dart  (선택: 메타데이터 관리)
-```
-
-### 3.2 RecorderService 기본 구조
-
-#### lib/services/recorder_service.dart
-```dart
-// lib/services/recorder_service.dart
-// 화면 + 오디오 녹화 서비스
-//
-// 목적: desktop_screen_recorder 패키지를 사용하여 화면과 오디오를 동시에 녹화
-// 작성일: 2025-10-22
-
-import 'dart:async';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:desktop_screen_recorder/desktop_screen_recorder.dart';
-import 'package:logger/logger.dart';
-
-final logger = Logger(
-  printer: PrettyPrinter(
-    methodCount: 0,
-    errorMethodCount: 5,
-    lineLength: 80,
-    colors: true,
-    printEmojis: true,
-  ),
+extern "C" {
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_Initialize();
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_StartRecording(
+    const char* output_path,
+    int32_t width,
+    int32_t height,
+    int32_t fps
 );
-
-/// 화면 + 오디오 녹화 서비스
-///
-/// desktop_screen_recorder 패키지를 사용하여 간단하게 구현
-class RecorderService {
-  final ScreenRecorder _recorder = ScreenRecorder();
-  bool _isRecording = false;
-  DateTime? _sessionStartTime;
-
-  /// 녹화 중 여부
-  bool get isRecording => _isRecording;
-
-  /// 녹화 시작
-  ///
-  /// @param duration 녹화 시간 (초 단위)
-  /// @return 저장된 파일 경로
-  Future<String?> startRecording({required int durationSeconds}) async {
-    if (_isRecording) {
-      logger.w('이미 녹화 중입니다');
-      return null;
-    }
-
-    try {
-      logger.i('🎬 녹화 시작 요청 ($durationSeconds초)');
-
-      // 저장 경로 생성
-      final outputPath = await _generateOutputPath();
-      logger.i('📁 저장 경로: $outputPath');
-
-      // 녹화 시작
-      await _recorder.start(
-        outputPath: outputPath,
-        recordAudio: true,  // 오디오 포함
-        fps: 24,            // 24fps
-        quality: RecordingQuality.high,
-      );
-
-      _isRecording = true;
-      _sessionStartTime = DateTime.now();
-      logger.i('✅ 녹화 시작 완료');
-
-      // N초 후 자동 중지
-      Timer(Duration(seconds: durationSeconds), () async {
-        await stopRecording();
-      });
-
-      return outputPath;
-    } catch (e, stackTrace) {
-      logger.e('❌ 녹화 시작 실패', error: e, stackTrace: stackTrace);
-      _isRecording = false;
-      rethrow;
-    }
-  }
-
-  /// 녹화 중지
-  ///
-  /// @return 저장된 파일 경로
-  Future<String?> stopRecording() async {
-    if (!_isRecording) {
-      logger.w('녹화 중이 아닙니다');
-      return null;
-    }
-
-    try {
-      logger.i('⏹️  녹화 중지 요청');
-
-      // 녹화 중지
-      final filePath = await _recorder.stop();
-      _isRecording = false;
-
-      // 통계 출력
-      if (_sessionStartTime != null) {
-        final duration = DateTime.now().difference(_sessionStartTime!);
-        logger.i('📊 세션 통계:');
-        logger.i('  - 시작 시각: ${_sessionStartTime!.toIso8601String()}');
-        logger.i('  - 총 녹화 시간: ${duration.inSeconds}초');
-      }
-      _sessionStartTime = null;
-
-      // 파일 정보
-      if (filePath != null) {
-        final file = File(filePath);
-        if (await file.exists()) {
-          final fileSize = await file.length();
-          logger.i('📁 파일 저장 완료');
-          logger.i('  - 경로: $filePath');
-          logger.i('  - 크기: ${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB');
-        }
-      }
-
-      logger.i('✅ 녹화 중지 완료');
-      return filePath;
-    } catch (e, stackTrace) {
-      logger.e('❌ 녹화 중지 실패', error: e, stackTrace: stackTrace);
-      _isRecording = false;
-      rethrow;
-    }
-  }
-
-  /// 저장 파일 경로 생성
-  ///
-  /// @return 절대 경로 (예: D:/SaturdayZoomRec/20251022_0835_test.mp4)
-  Future<String> _generateOutputPath() async {
-    // TODO: 설정에서 저장 경로 가져오기 (SharedPreferences)
-    // 현재는 Documents 폴더 사용
-    final documentsDir = await getApplicationDocumentsDirectory();
-    final recordingDir = Directory('${documentsDir.path}/SaturdayZoomRec');
-
-    // 폴더 생성 (없으면)
-    if (!await recordingDir.exists()) {
-      await recordingDir.create(recursive: true);
-    }
-
-    // 파일명 생성: YYYYMMDD_HHMM_test.mp4
-    final now = DateTime.now();
-    final filename = '${_formatDate(now)}_${_formatTime(now)}_test.mp4';
-
-    return '${recordingDir.path}/$filename';
-  }
-
-  /// 날짜 포맷 (YYYYMMDD)
-  String _formatDate(DateTime dt) {
-    return '${dt.year}${_twoDigits(dt.month)}${_twoDigits(dt.day)}';
-  }
-
-  /// 시간 포맷 (HHMM)
-  String _formatTime(DateTime dt) {
-    return '${_twoDigits(dt.hour)}${_twoDigits(dt.minute)}';
-  }
-
-  /// 두 자리 숫자 포맷
-  String _twoDigits(int n) => n.toString().padLeft(2, '0');
-
-  /// 리소스 정리
-  void dispose() {
-    _recorder.dispose();
-  }
+// ...
 }
 ```
 
+#### 2.2 구현 파일 작성 (스텁)
+**파일**: `windows/runner/native_screen_recorder.cpp`
+
+**현재 상태**: 스텁 구현 (실제 캡처 로직은 Phase 2에서 구현)
+
+**구현 내용**:
+- 멀티스레드 구조 준비 (캡처 스레드 분리)
+- 에러 처리 구조 (`SetLastError`, `GetLastError`)
+- 녹화 상태 관리 (`g_is_recording`, `g_capture_thread`)
+- `extern "C"` 블록으로 모든 함수 감싸기 (C 링크 보장)
+
+```cpp
+extern "C" {
+
+int32_t NativeRecorder_Initialize() {
+    // TODO: COM 초기화 (CoInitializeEx)
+    // TODO: Windows Runtime 초기화
+    SetLastError("");
+    return 0;  // 성공
+}
+
+int32_t NativeRecorder_StartRecording(...) {
+    g_is_recording = true;
+    g_capture_thread = std::thread(CaptureThreadFunc, ...);
+    return 0;
+}
+
+}  // extern "C"
+```
+
+#### 2.3 CMake 설정
+**파일**: `windows/runner/CMakeLists.txt`
+
+**변경 사항**:
+1. 소스 파일 추가: `native_screen_recorder.cpp`
+2. **심볼 export 설정 추가**:
+   ```cmake
+   set_target_properties(${BINARY_NAME} PROPERTIES ENABLE_EXPORTS ON)
+   ```
+   → 이 설정이 없으면 EXE가 심볼을 export하지 않음
+
+**커밋**: `788d9ff` "feat: 네이티브 화면 녹화 C++ 인프라 추가 (스텁)"
+
 ---
 
-## 4. UI 연동
+### 3. Dart FFI 바인딩 연결 ✅
 
-### 4.1 main.dart 수정
+#### 3.1 FFI 바인딩 파일 작성
+**파일**: `lib/ffi/native_bindings.dart`
+
+**구현 내용**:
+- `DynamicLibrary.executable()` 사용 (Windows EXE에서 심볼 로드)
+- 6개 네이티브 함수 바인딩
+- 헬퍼 함수: `getNativeLastError()` (에러 메시지 String 변환)
+
 ```dart
-// lib/main.dart
-import 'package:flutter/material.dart';
-import 'package:window_manager/window_manager.dart';
-import 'services/recorder_service.dart';
+class NativeRecorderBindings {
+  static final ffi.DynamicLibrary _lib = ffi.DynamicLibrary.executable();
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  static final DartInitializeFunc initialize = _lib
+      .lookup<ffi.NativeFunction<NativeInitializeFunc>>('NativeRecorder_Initialize')
+      .asFunction();
 
-  // Window 관리 초기화 (기존 코드 유지)
-  await windowManager.ensureInitialized();
-  // ... (기존 windowOptions 코드)
-
-  runApp(const MyApp());
+  // 나머지 함수들...
 }
+```
 
-// ... (MyApp, MainScreen 기존 코드)
+#### 3.2 RecorderService 통합
+**파일**: `lib/services/recorder_service.dart`
 
-// _MainScreenState에 RecorderService 추가
-class _MainScreenState extends State<MainScreen> with WindowListener {
-  final RecorderService _recorderService = RecorderService();
+**구현 내용**:
+- `initialize()`: 네이티브 초기화
+- `startRecording()`: 네이티브 함수 호출, 경로 전달 (UTF-8)
+- `stopRecording()`: 네이티브 중지, 파일 존재 확인
+- `dispose()`: 네이티브 리소스 정리
+- 에러 처리 및 로깅
 
-  @override
-  void dispose() {
-    _recorderService.dispose();
-    windowManager.removeListener(this);
-    super.dispose();
-  }
+**주요 코드**:
+```dart
+Future<String?> startRecording({required int durationSeconds}) async {
+  final outputPath = await _generateOutputPath();
 
-  // "10초 테스트" 버튼 핸들러 수정
-  void _onTestRecordingPressed() async {
-    try {
-      final filePath = await _recorderService.startRecording(
-        durationSeconds: 10,
-      );
+  // 네이티브 녹화 시작
+  final pathPtr = outputPath.toNativeUtf8();
+  try {
+    final result = NativeRecorderBindings.startRecording(
+      pathPtr,
+      1920, 1080, 24,  // 해상도, FPS
+    );
 
-      if (filePath != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('10초 녹화 시작: $filePath')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('녹화 시작 실패: $e')),
-      );
+    if (result != 0) {
+      throw Exception('네이티브 녹화 시작 실패: ${getNativeLastError()}');
     }
+  } finally {
+    malloc.free(pathPtr);
   }
 
-  // ... (기존 build 메서드, 버튼 onPressed에 _onTestRecordingPressed 연결)
+  // 10초 후 자동 중지
+  Timer(Duration(seconds: durationSeconds), () async {
+    await stopRecording();
+  });
+
+  return outputPath;
 }
 ```
 
+**커밋**: `e1e1f8f` "feat: Dart FFI 바인딩 연결 및 RecorderService 네이티브 통합"
+
 ---
 
-## 5. 테스트 시나리오
+### 4. FFI 심볼 Export 문제 해결 ✅
 
-### 5.1 패키지 설치 확인
-```bash
-# WSL
-cd ~/projects/sat-lec-rec
-flutter pub get
-
-# Windows (동기화 후)
-cd C:\ws-workspace\sat-lec-rec
-flutter pub get
+#### 4.1 문제 발생
+**에러**:
+```
+Invalid argument(s): Failed to lookup symbol 'NativeRecorder_Initialize':
+The specified procedure could not be found. (error code: 127)
 ```
 
-### 5.2 빌드 테스트
-```bash
-# Windows
-cd C:\ws-workspace\sat-lec-rec
-flutter build windows --debug
+**원인**:
+- Windows EXE는 기본적으로 함수를 export하지 않음
+- `extern "C"`만으로는 부족 (C 링크는 되지만 export는 안 됨)
+- `DynamicLibrary.executable()`이 exported symbols table을 검색하는데, 그곳에 심볼이 없음
+
+#### 4.2 해결 방법
+
+**Step 1**: 헤더에 export 지시자 추가
+```cpp
+// native_screen_recorder.h
+#if defined(_WIN32)
+  #define NATIVE_RECORDER_EXPORT __declspec(dllexport)
+#else
+  #define NATIVE_RECORDER_EXPORT
+#endif
+
+extern "C" {
+NATIVE_RECORDER_EXPORT int32_t NativeRecorder_Initialize();
+// ...
+}
 ```
 
-### 5.3 10초 녹화 테스트
-```
-1. 앱 실행
-2. "10초 테스트" 버튼 클릭
-3. 로그 확인:
-   - "🎬 녹화 시작 요청 (10초)"
-   - "📁 저장 경로: ..."
-   - "✅ 녹화 시작 완료"
-4. 10초 대기
-5. 로그 확인:
-   - "⏹️  녹화 중지 요청"
-   - "📊 세션 통계: ..."
-   - "📁 파일 저장 완료"
-   - "✅ 녹화 중지 완료"
-6. 파일 탐색기에서 mp4 파일 확인
-7. VLC로 재생: 화면 + 소리 확인
+**Step 2**: CMake에서 ENABLE_EXPORTS 설정
+```cmake
+# CMakeLists.txt
+set_target_properties(${BINARY_NAME} PROPERTIES ENABLE_EXPORTS ON)
 ```
 
----
+**Step 3**: extern "C" 블록으로 구현부 감싸기
+```cpp
+// native_screen_recorder.cpp
+extern "C" {
 
-## 6. 체크리스트
+int32_t NativeRecorder_Initialize() {
+    // 구현...
+}
 
-### Phase 1: 기존 코드 정리
-- [ ] `windows/runner/ffmpeg_runner.*` 삭제
-- [ ] `windows/runner/native_recorder_plugin.*` 삭제
-- [ ] `lib/ffi/native_bindings.dart` 삭제
-- [ ] `windows/runner/CMakeLists.txt` 원복
-- [ ] `lib/main.dart`에서 FFI 코드 제거
-- [ ] `third_party/ffmpeg/` 폴더 삭제
+}  // extern "C"
+```
 
-### Phase 2: 패키지 통합
-- [ ] `pubspec.yaml`에 `desktop_screen_recorder` 추가
-- [ ] `flutter pub get` 실행 (WSL & Windows)
-- [ ] `lib/services/recorder_service.dart` 생성
-- [ ] RecorderService 기본 구조 구현
+**커밋**:
+- `86fd026` "fix: C++ 함수에 extern "C" 링크 명시적 적용"
+- `3cda7c1` "fix: Windows EXE에서 FFI 심볼 export 설정 추가"
 
-### Phase 3: UI 연동
-- [ ] `lib/main.dart`에 RecorderService 추가
-- [ ] "10초 테스트" 버튼 핸들러 연결
-- [ ] 녹화 상태 UI 업데이트 (선택)
+#### 4.3 검증 성공
+**테스트**: `flutter run -d windows` → "10초 테스트" 버튼 클릭
 
-### Phase 4: 테스트
-- [ ] WSL → Windows 동기화
-- [ ] Windows에서 빌드 (`flutter build windows --debug`)
-- [ ] 10초 녹화 테스트 성공
-- [ ] MP4 파일 생성 및 재생 확인
-- [ ] 로그 확인 (정상 흐름)
+**로그**:
+```
+✅ 네이티브 녹화 초기화 완료
+🎬 녹화 시작 요청 (10초)
+📁 저장 경로: C:\Users\user\OneDrive\문서/SaturdayZoomRec/20251023_0848_test.mp4
+✅ 녹화 시작 완료
+⏹️  녹화 중지 요청
+📊 세션 통계:
+  - 시작 시각: 2025-10-23T08:48:34.703210
+  - 총 녹화 시간: 10초
+✅ 녹화 중지 완료
+```
 
----
-
-## 7. 예상 효과
-
-| 항목 | 기존 방식 (C++ FFI) | 새로운 방식 (Flutter 패키지) |
-|------|-------------------|--------------------------|
-| **코드 복잡도** | 6개 파일, C++ + Dart | 1-2개 파일, Dart만 |
-| **경로 관리** | 수동 (실패함) | 자동 (패키지가 처리) |
-| **FFmpeg 배포** | 필요 (170MB) | 불필요 (패키지 내장) |
-| **디버깅 난이도** | 매우 어려움 | 쉬움 |
-| **크로스 플랫폼** | Windows만 | Windows/Linux/macOS |
-| **개발 속도** | 느림 (5회 실패) | 빠름 (eyebottlelee 참고) |
+**결과**: FFI 통신 완벽 작동 ✅
 
 ---
 
-## 8. 다음 단계 (Phase 1.3)
+## 다음 단계: Phase 2 실제 캡처 구현
 
-- ~~Named Pipe 생성 및 테스트~~ → 패키지가 자동 처리
-- ~~FFmpeg 프로세스에 stdin으로 데이터 전달~~ → 패키지가 자동 처리
-- **Zoom 창 타깃 캡처** (desktop_screen_recorder API 확인)
-- **오디오 장치 선택** (Loopback + 마이크 믹스)
-- **세그먼트 저장** (45분 단위 분할)
+현재는 **스텁 상태**로, 실제 화면/오디오 캡처는 구현되지 않았습니다.
+
+### Phase 2.1: Windows Graphics Capture API (3~4일)
+- Direct3D11 초기화
+- GraphicsCaptureItem 생성 (모니터 또는 특정 창)
+- GraphicsCaptureSession 시작
+- FrameArrived 이벤트 핸들러
+- BGRA 프레임 → RGB 변환
+- 프레임 버퍼 관리
+
+**참고 문서**: `doc/m2-phase-2.1-graphics-capture.md` (작성 예정)
+
+### Phase 2.2: WASAPI Loopback 오디오 캡처 (2~3일)
+- IMMDeviceEnumerator로 오디오 장치 가져오기
+- IAudioClient 초기화 (Loopback 모드)
+- IAudioCaptureClient로 샘플 캡처
+- 오디오/비디오 타임스탬프 동기화
+
+**참고 문서**: `doc/m2-phase-2.2-wasapi-audio.md` (작성 예정)
+
+### Phase 2.3: H.264/AAC 인코딩 (3~4일)
+- Media Foundation 초기화
+- IMFSinkWriter 생성 (MP4 출력)
+- H.264 비디오 스트림 설정
+- AAC 오디오 스트림 설정
+- 프레임/샘플 인코딩 및 mux
+
+### Phase 2.4: Fragmented MP4 저장 (2일)
+- Fragmented MP4 포맷 설정
+- 실시간 저장 (크래시 시 복구 가능)
+- 파일 크기 모니터링
+- 메타데이터 저장 (JSON)
 
 ---
 
-## 참고 자료
+## 학습 교훈
 
-### Flutter 패키지
-- [desktop_screen_recorder - pub.dev](https://pub.dev/packages/desktop_screen_recorder)
-- [record - pub.dev](https://pub.dev/packages/record) (eyebottlelee 프로젝트 사용)
+### ✅ 성공 요인
+1. **CodeX 조언 채택**: FFmpeg 프로세스 방식 포기, 네이티브 구현 선택
+2. **철저한 조사**: Flutter 패키지 생태계 한계 파악
+3. **단계적 접근**: 스텁 → FFI 연결 → 심볼 export → 실제 구현
+4. **문서화**: 시행착오 과정을 상세히 기록
 
-### 참고 프로젝트
-- eyebottlelee (`~/projects/eyebottlelee`): `record` 패키지 사용한 오디오 녹음 구현
+### ⚠️ 주의사항
+1. **Windows EXE export**: `__declspec(dllexport)` + `ENABLE_EXPORTS ON` 필수
+2. **extern "C" 블록**: 선언뿐 아니라 **구현부도** 감싸야 함
+3. **UTF-8 문자열**: `toNativeUtf8()` 후 반드시 `malloc.free()`
+4. **멀티스레드**: 캡처 스레드와 메인 스레드 분리 필수
 
 ---
 
-**작성일**: 2025-10-22
-**버전**: v2.0 (아키텍처 재설계)
+## 체크리스트
+
+### Phase 1.2 완료 항목
+- [x] 기존 C++ FFI 코드 제거
+- [x] `third_party/ffmpeg/` 폴더 삭제
+- [x] C++ 네이티브 인프라 구축 (헤더/구현/CMake)
+- [x] Dart FFI 바인딩 작성
+- [x] RecorderService 네이티브 통합
+- [x] FFI 심볼 export 문제 해결
+- [x] 10초 테스트 성공 (스텁)
+
+### Phase 2 준비 항목
+- [ ] Phase 2.1 문서 작성 (Graphics Capture API)
+- [ ] Phase 2.2 문서 작성 (WASAPI)
+- [ ] Direct3D11 학습 자료 수집
+- [ ] Media Foundation 샘플 코드 분석
+
+---
+
+**작성일**: 2025-10-23
+**버전**: v3.0 (Windows Native API + FFI)
 **작성자**: AI 협업 (Claude Code)
+**상태**: Phase 1.2 완료, Phase 2 준비 중
