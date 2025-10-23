@@ -11,10 +11,22 @@
 #include "native_screen_recorder.h"
 
 #include <windows.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 #include <string>
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <queue>
+#include <condition_variable>
+
+// TODO Phase 2.1: C++/WinRT 헤더 추가 (GraphicsCapture 사용)
+// #include <winrt/Windows.Foundation.h>
+// #include <winrt/Windows.Graphics.Capture.h>
+// #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
+
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dxgi.lib")
 
 // 전역 상태
 static std::atomic<bool> g_is_recording(false);
@@ -22,10 +34,116 @@ static std::string g_last_error;
 static std::mutex g_error_mutex;
 static std::thread g_capture_thread;
 
+// Direct3D11 관련
+static ID3D11Device* g_d3d_device = nullptr;
+static ID3D11DeviceContext* g_d3d_context = nullptr;
+static ID3D11Texture2D* g_staging_texture = nullptr;
+static bool g_com_initialized = false;
+
+// 프레임 데이터 구조
+struct FrameData {
+    std::vector<uint8_t> pixels;  // BGRA 픽셀 데이터
+    int width;
+    int height;
+    uint64_t timestamp;  // QueryPerformanceCounter 값
+};
+
+// 프레임 버퍼 큐
+static std::queue<FrameData> g_frame_queue;
+static std::mutex g_queue_mutex;
+static std::condition_variable g_queue_cv;
+static const size_t MAX_QUEUE_SIZE = 60;  // 최대 60 프레임 (약 2.5초 @ 24fps)
+
 // 에러 메시지 설정 헬퍼
 static void SetLastError(const std::string& error) {
     std::lock_guard<std::mutex> lock(g_error_mutex);
     g_last_error = error;
+}
+
+// Direct3D11 디바이스 생성
+static bool CreateD3D11Device() {
+    if (g_d3d_device) {
+        return true;  // 이미 생성됨
+    }
+
+    UINT creation_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+#ifdef _DEBUG
+    creation_flags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
+
+    D3D_FEATURE_LEVEL feature_levels[] = {
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0
+    };
+
+    D3D_FEATURE_LEVEL feature_level;
+
+    HRESULT hr = D3D11CreateDevice(
+        nullptr,                        // 기본 어댑터
+        D3D_DRIVER_TYPE_HARDWARE,       // 하드웨어 가속
+        nullptr,
+        creation_flags,
+        feature_levels,
+        ARRAYSIZE(feature_levels),
+        D3D11_SDK_VERSION,
+        &g_d3d_device,
+        &feature_level,
+        &g_d3d_context
+    );
+
+    if (FAILED(hr)) {
+        SetLastError("D3D11 디바이스 생성 실패");
+        return false;
+    }
+
+    return true;
+}
+
+// Direct3D11 리소스 정리
+static void CleanupD3D11() {
+    if (g_staging_texture) {
+        g_staging_texture->Release();
+        g_staging_texture = nullptr;
+    }
+
+    if (g_d3d_context) {
+        g_d3d_context->Release();
+        g_d3d_context = nullptr;
+    }
+
+    if (g_d3d_device) {
+        g_d3d_device->Release();
+        g_d3d_device = nullptr;
+    }
+}
+
+// 프레임 큐에 추가
+static void EnqueueFrame(const FrameData& frame) {
+    std::lock_guard<std::mutex> lock(g_queue_mutex);
+
+    if (g_frame_queue.size() >= MAX_QUEUE_SIZE) {
+        // 큐가 가득 찬 경우: 가장 오래된 프레임 버림
+        g_frame_queue.pop();
+    }
+
+    g_frame_queue.push(frame);
+    g_queue_cv.notify_one();
+}
+
+// 프레임 큐에서 가져오기
+static FrameData DequeueFrame() {
+    std::unique_lock<std::mutex> lock(g_queue_mutex);
+    g_queue_cv.wait(lock, [] {
+        return !g_frame_queue.empty() || !g_is_recording;
+    });
+
+    if (g_frame_queue.empty()) return FrameData{};
+
+    FrameData frame = g_frame_queue.front();
+    g_frame_queue.pop();
+    return frame;
 }
 
 // 녹화 스레드 함수 (스텁 - 실제 캡처 로직은 Phase 2에서 구현)
@@ -68,8 +186,23 @@ extern "C" {
 // 녹화 초기화
 int32_t NativeRecorder_Initialize() {
     try {
-        // TODO: COM 초기화 (CoInitializeEx)
-        // TODO: Windows Runtime 초기화 (Windows.Graphics.Capture 사용 시)
+        // COM 초기화 (멀티스레드 아파트)
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+            SetLastError("COM 초기화 실패");
+            return -1;
+        }
+        g_com_initialized = true;
+
+        // Direct3D11 디바이스 생성
+        if (!CreateD3D11Device()) {
+            SetLastError("D3D11 디바이스 생성 실패");
+            return -2;
+        }
+
+        // TODO Phase 2.1: Windows Runtime 초기화 (Windows.Graphics.Capture)
+        // - init_apartment() 호출
+        // - C++/WinRT 헤더 추가 필요
 
         SetLastError("");
         return 0;  // 성공
@@ -151,7 +284,14 @@ void NativeRecorder_Cleanup() {
         NativeRecorder_StopRecording();
     }
 
-    // TODO: COM 종료 (CoUninitialize)
+    // Direct3D11 리소스 정리
+    CleanupD3D11();
+
+    // COM 종료
+    if (g_com_initialized) {
+        CoUninitialize();
+        g_com_initialized = false;
+    }
 }
 
 // 마지막 에러 메시지 가져오기

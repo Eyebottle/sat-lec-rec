@@ -79,6 +79,17 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    _initializeRecorder();
+  }
+
+  Future<void> _initializeRecorder() async {
+    try {
+      logger.i('RecorderService 초기화 시작...');
+      await _recorderService.initialize();
+      logger.i('✅ RecorderService 초기화 완료');
+    } catch (e, stackTrace) {
+      logger.e('❌ RecorderService 초기화 실패', error: e, stackTrace: stackTrace);
+    }
   }
 
   @override

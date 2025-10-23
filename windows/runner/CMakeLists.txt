@@ -25,6 +25,10 @@ apply_standard_settings(${BINARY_NAME})
 # This allows DynamicLibrary.executable() to find native functions
 set_target_properties(${BINARY_NAME} PROPERTIES ENABLE_EXPORTS ON)
 
+# C++/WinRT 지원을 위한 C++17 설정
+set_target_properties(${BINARY_NAME} PROPERTIES CXX_STANDARD 17)
+set_target_properties(${BINARY_NAME} PROPERTIES CXX_STANDARD_REQUIRED ON)
+
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
