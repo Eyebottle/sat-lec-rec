@@ -159,3 +159,38 @@
     - GraphicsCaptureItem 생성 (모니터 선택)
     - GraphicsCaptureSession 시작
     - FrameArrived 이벤트 핸들러 구현
+
+- 2025-10-23 (저녁): **M2 Phase 2.1 완료** (DXGI Desktop Duplication 화면 캡처)
+  - **DXGI Desktop Duplication 구현 성공**:
+    - `InitializeDXGIDuplication()` 함수 구현 (4단계 초기화)
+    - `CaptureFrame()` 함수 구현 (프레임 캡처 파이프라인)
+    - GPU → CPU 프레임 전송 (Staging Texture + Map/Unmap)
+    - 프레임 큐에 BGRA 픽셀 데이터 저장
+
+  - **디버그 로그 추가**:
+    - `printf` + `fflush`로 C++ 로그를 Flutter 콘솔에 출력
+    - 초기화 4단계 각각 로그 추가
+    - 프레임 캡처 성공/실패 로그 추가
+    - 1초마다 캡처된 프레임 수 출력 (24프레임 단위)
+
+  - **테스트 결과**:
+    - ✅ 10초 테스트: 404 프레임 캡처 성공
+    - ✅ 평균 FPS: 40.4fps (목표 24fps 초과)
+    - ✅ 프레임 캡처 안정성: 100% (실패 없음)
+    - ✅ DXGI 초기화 4단계 모두 성공
+    - ✅ 리소스 정리 정상 작동
+
+  - **커밋 히스토리**:
+    - `6abf716`: Phase 2.1 완료 - DXGI Desktop Duplication 화면 캡처 구현
+
+  - **학습 교훈**:
+    - DXGI Desktop Duplication은 C++/WinRT 없이 순수 COM으로 구현 가능
+    - `AcquireNextFrame` 타임아웃은 정상 동작 (새 프레임 없음)
+    - Staging Texture는 최초 1회만 생성하고 재사용
+    - RowPitch와 실제 너비가 다를 수 있어 행 단위 복사 필요
+
+  - **진행률**: Phase 2.1 100% 완료
+
+  - **현재 상태**: 화면 프레임을 메모리 큐에 저장 중 (인코더 미구현)
+
+  - **다음 작업**: Phase 2.2 (WASAPI Loopback 오디오 캡처)

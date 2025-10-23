@@ -8,7 +8,12 @@
 
 ## 진행 상황 요약
 
-### 완료된 작업 (40%)
+### ✅ Phase 2.1 완료! (100%)
+
+**완료일**: 2025-10-23
+**테스트 결과**: 10초간 404 프레임 캡처 성공 (평균 40.4fps)
+
+### 완료된 작업
 
 #### 1. COM 및 Direct3D11 초기화 ✅
 
@@ -135,7 +140,81 @@ Future<void> _initializeRecorder() async {
 
 ---
 
-## 다음 작업 (60%)
+#### 5. DXGI Desktop Duplication 구현 ✅
+
+**파일**: `windows/runner/native_screen_recorder.cpp`
+
+**구현 내용**:
+
+**InitializeDXGIDuplication() 함수**:
+```cpp
+// 4단계 초기화 프로세스
+1. DXGI 어댑터 가져오기 (QueryInterface → GetAdapter)
+2. 주 모니터 출력 가져오기 (EnumOutputs(0))
+3. IDXGIOutput1 변환 (QueryInterface)
+4. Desktop Duplication 생성 (DuplicateOutput)
+```
+
+**CaptureFrame() 함수**:
+```cpp
+// 프레임 캡처 파이프라인
+1. AcquireNextFrame(100ms timeout)
+2. IDXGIResource → ID3D11Texture2D 변환
+3. Staging Texture로 CopyResource (GPU → CPU 준비)
+4. Map() / Unmap()으로 픽셀 데이터 읽기 (행 단위)
+5. FrameData 구조체로 큐에 추가 (BGRA + timestamp)
+6. ReleaseFrame() 호출
+```
+
+**CaptureThreadFunc() 수정**:
+- DXGI 초기화 로그 추가
+- 프레임 캡처 루프 로그 추가 (첫 프레임, 24프레임마다)
+- 캡처 실패 시 에러 로그 및 루프 종료
+- 리소스 정리 로그 추가
+
+**테스트 결과**:
+```
+[C++] DXGI Desktop Duplication 초기화 시작...
+[C++] 1/4: DXGI 어댑터 가져오기...
+[C++] 2/4: 주 모니터 출력 가져오기...
+[C++] 3/4: IDXGIOutput1 변환...
+[C++] 4/4: Desktop Duplication 생성...
+[C++] ✅ Desktop Duplication 생성 성공
+[C++] ✅ DXGI Desktop Duplication 초기화 완료
+[C++] 프레임 캡처 루프 시작...
+[C++] 🎬 첫 번째 프레임 캡처 성공!
+[C++] 📊 캡처된 프레임: 24
+[C++] 📊 캡처된 프레임: 48
+...
+[C++] 📊 캡처된 프레임: 384
+[C++] 캡처 루프 종료, 총 404 프레임 캡처됨
+[C++] DXGI 리소스 정리 완료
+```
+
+**성능 측정**:
+- 10초 테스트: 404 프레임 캡처
+- 평균 FPS: 40.4fps (목표 24fps 초과)
+- 프레임 캡처 안정성: 100% (실패 없음)
+
+**커밋**: `6abf716`
+
+---
+
+## ✅ Phase 2.1 완료 (100%)
+
+**최종 성과**:
+- ✅ DXGI Desktop Duplication API 통합 성공
+- ✅ 화면 프레임 캡처 및 GPU→CPU 전송 안정화
+- ✅ 프레임 버퍼 큐 정상 작동
+- ✅ 40fps 이상 캡처 성능 달성
+
+**다음 단계**: Phase 2.2 (WASAPI Loopback 오디오 캡처)
+
+---
+
+## 아카이브: 이전 계획 (참고용)
+
+### 다음 작업 (GraphicsCapture API 시도 - 포기됨)
 
 ### 5. C++/WinRT 헤더 추가 및 빌드 검증 (다음 단계)
 
