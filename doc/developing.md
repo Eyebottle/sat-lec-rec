@@ -123,3 +123,39 @@
   - **현재 상태**: Phase 1.2 완료 (FFI 통신 구축), 실제 캡처는 Phase 2에서 구현
 
   - **다음 작업**: Phase 2.1 (Graphics Capture API 구현) 문서 작성 및 개발 시작
+
+- 2025-10-23 (오후): **M2 Phase 2.1 시작** (Windows Graphics Capture API 기반 구조)
+  - **D3D11 디바이스 초기화 완료**:
+    - `CreateD3D11Device()` 함수 구현 (Feature Level 11.1~10.0 지원)
+    - `CleanupD3D11()` 함수 구현 (리소스 정리)
+    - `NativeRecorder_Initialize()`에 통합
+    - 테스트: ✅ COM 초기화 성공, ✅ D3D11 디바이스 생성 성공
+
+  - **프레임 버퍼 관리 인프라 구축**:
+    - `FrameData` 구조체 정의 (pixels, width, height, timestamp)
+    - 스레드 안전 큐 구현 (`std::queue` + `std::mutex` + `std::condition_variable`)
+    - `EnqueueFrame()` / `DequeueFrame()` 함수 구현
+    - 최대 큐 크기: 60 프레임 (약 2.5초 @ 24fps)
+    - 큐 가득 찰 경우: FIFO 방식으로 가장 오래된 프레임 버림
+
+  - **CMakeLists.txt 설정**:
+    - C++17 표준 설정 추가 (C++/WinRT 준비)
+    - `set_target_properties(${BINARY_NAME} PROPERTIES CXX_STANDARD 17)`
+
+  - **자동 초기화 구현**:
+    - `lib/main.dart`의 `_MainScreenState.initState()`에서 자동 초기화
+    - `_initializeRecorder()` 함수 추가
+    - 앱 시작 시 즉시 RecorderService 초기화 및 로그 출력
+
+  - **커밋 히스토리**:
+    - `39dc0b9`: D3D11 초기화 및 프레임 버퍼 구현
+
+  - **진행률**: Phase 2.1 약 40% 완료 (기반 인프라)
+
+  - **현재 상태**: COM/D3D11 준비 완료, C++/WinRT 추가 대기 중
+
+  - **다음 작업**:
+    - C++/WinRT 헤더 추가 및 빌드 검증
+    - GraphicsCaptureItem 생성 (모니터 선택)
+    - GraphicsCaptureSession 시작
+    - FrameArrived 이벤트 핸들러 구현

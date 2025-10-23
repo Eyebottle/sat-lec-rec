@@ -174,8 +174,16 @@ void WriteTestFrames(HANDLE pipe) {
 #### 2.1 Windows Graphics Capture (5일)
 
 **체크리스트**:
+- [x] **[L1]** COM 및 Direct3D11 디바이스 초기화
+- [x] **[L1]** 프레임 버퍼 관리 인프라 구축 (FrameData, 큐)
+- [x] **[L1]** CMakeLists.txt C++17 설정 (C++/WinRT 준비)
+- [ ] **[L1]** C++/WinRT 헤더 추가 및 빌드 검증
 - [ ] **[L1]** Windows.Graphics.Capture API 초기화
+- [ ] **[L1]** GraphicsCaptureItem 생성 (모니터)
+- [ ] **[L1]** GraphicsCaptureSession 시작
+- [ ] **[L1]** FrameArrived 이벤트 핸들러 구현
 - [ ] **[L1]** 전체 모니터 캡처 구현 (1프레임 테스트)
+- [ ] **[L1]** GPU → CPU 프레임 복사 (Staging Texture)
 - [ ] **[L1]** Zoom 창 핸들 타깃 캡처 (FR-7)
 - [ ] **[L2]** 창 캡처 실패 시 전체 모니터 폴백 (FR-7)
 
