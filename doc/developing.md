@@ -194,3 +194,49 @@
   - **현재 상태**: 화면 프레임을 메모리 큐에 저장 중 (인코더 미구현)
 
   - **다음 작업**: Phase 2.2 (WASAPI Loopback 오디오 캡처)
+
+- 2025-10-23 (밤): **M2 Phase 2.2 완료** (WASAPI Loopback 오디오 캡처)
+  - **WASAPI 초기화 구현**:
+    - `InitializeWASAPI()` 함수 구현 (4단계 초기화)
+    - IMMDeviceEnumerator → 기본 렌더 디바이스 → IAudioClient → IAudioCaptureClient
+    - Loopback 모드 플래그 (`AUDCLNT_STREAMFLAGS_LOOPBACK`)
+    - `AudioClient->Start()` 호출로 캡처 시작
+
+  - **오디오 캡처 스레드 구현**:
+    - `AudioCaptureThreadFunc()` 함수 구현 (별도 스레드)
+    - `GetNextPacketSize()` → `GetBuffer()` → `ReleaseBuffer()` 패턴
+    - 무음 플래그 확인 (`AUDCLNT_BUFFERFLAGS_SILENT`)
+    - `AudioSample` 구조체에 PCM 데이터 + 메타데이터 저장
+    - 100개마다 로그 출력
+
+  - **오디오 버퍼 큐 구현**:
+    - `EnqueueAudioSample()` / `DequeueAudioSample()` 함수
+    - 스레드 안전 큐 (`std::queue` + `std::mutex` + `std::condition_variable`)
+    - 최대 100 샘플 저장, FIFO 방식
+
+  - **통합 및 리소스 관리**:
+    - `CaptureThreadFunc()`에서 WASAPI 초기화 및 오디오 스레드 시작
+    - 녹화 종료 시 오디오 스레드 대기 (`g_audio_thread.join()`)
+    - `CleanupWASAPI()` 함수로 리소스 정리
+    - `NativeRecorder_Cleanup()`에도 통합
+
+  - **테스트 결과**:
+    - ✅ WASAPI 초기화 성공: 48000 Hz, 2 channels, 32 bits
+    - ✅ 오디오 캡처 스레드 정상 시작 및 종료
+    - ✅ 비디오 프레임 334개 캡처 (33.4fps)
+    - ⚠️  오디오 샘플 0개 캡처 (무음 상태 - Loopback은 출력 오디오만 캡처)
+
+  - **커밋 히스토리**:
+    - `10cb9f8`: Phase 2.2 완료 - WASAPI Loopback 오디오 캡처 구현
+
+  - **학습 교훈**:
+    - WASAPI Loopback은 스피커 출력만 캡처하므로 무음 시 샘플 없음
+    - 실제 Zoom 녹화 시 오디오가 재생되면 샘플이 캡처될 것
+    - 오디오 포맷은 시스템 기본값 사용 (48kHz, 스테레오, 32bit Float)
+    - `AudioClient->Start()` 전에 `IAudioCaptureClient`를 먼저 가져와야 함
+
+  - **진행률**: Phase 2.2 100% 완료
+
+  - **현재 상태**: 화면 + 오디오 캡처 완료, 메모리 큐에 저장 중 (인코더 미구현)
+
+  - **다음 작업**: Phase 2.3 (Media Foundation 인코더로 H.264/AAC 인코딩 및 MP4 저장)
