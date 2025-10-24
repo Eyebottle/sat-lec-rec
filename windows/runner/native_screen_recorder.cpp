@@ -1,10 +1,10 @@
 // windows/runner/native_screen_recorder.cpp
-// DXGI Desktop Duplication + WASAPI Loopback을 사용한 화면 + 오디오 녹화 구현
+// DXGI Desktop Duplication + WASAPI Loopback + FFmpeg 파이프라인을 사용한 화면 + 오디오 녹화 구현
 //
 // 목적:
 //   1. DXGI Desktop Duplication으로 화면 캡처
 //   2. WASAPI Loopback으로 오디오 캡처
-//   3. Media Foundation으로 H.264/AAC 인코딩하여 MP4 저장
+//   3. FFmpeg Named Pipe로 Fragmented MP4 저장
 //
 // 작성일: 2025-10-22
 
@@ -21,6 +21,8 @@
 #include <mutex>
 #include <queue>
 #include <condition_variable>
+#include <cmath>  // Phase 3.1.2: std::sqrt, std::abs
+#include <memory>
 
 // DXGI Desktop Duplication API 헤더
 #pragma comment(lib, "d3d11.lib")
@@ -29,6 +31,7 @@
 // WASAPI 헤더
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "winmm.lib")
+#include "ffmpeg_pipeline.h"
 
 // 전역 상태
 static std::atomic<bool> g_is_recording(false);
@@ -51,6 +54,18 @@ static IAudioClient* g_audio_client = nullptr;
 static IAudioCaptureClient* g_audio_capture_client = nullptr;
 static WAVEFORMATEX* g_wave_format = nullptr;
 static std::thread g_audio_thread;
+
+static std::thread g_encoder_thread;
+static std::unique_ptr<FFmpegPipeline> g_ffmpeg_pipeline;
+
+// 타임스탬프 관리
+static LARGE_INTEGER g_recording_start_qpc;
+static LARGE_INTEGER g_qpc_frequency;
+static LONGLONG g_video_frame_count = 0;
+static LONGLONG g_audio_sample_count = 0;
+static int g_video_width = 0;
+static int g_video_height = 0;
+static int g_video_fps = 30;
 
 // 프레임 데이터 구조
 struct FrameData {
@@ -82,10 +97,49 @@ static std::mutex g_audio_queue_mutex;
 static std::condition_variable g_audio_queue_cv;
 static const size_t MAX_AUDIO_QUEUE_SIZE = 100;  // 최대 100 샘플
 
+// Phase 3.1.2: 오디오 레벨 추적 (0.0 ~ 1.0)
+static std::atomic<float> g_current_audio_level(0.0f);  // RMS 레벨
+static std::atomic<float> g_peak_audio_level(0.0f);     // Peak 레벨
+
 // 에러 메시지 설정 헬퍼
 static void SetLastError(const std::string& error) {
     std::lock_guard<std::mutex> lock(g_error_mutex);
     g_last_error = error;
+}
+
+// Phase 3.1.2: 오디오 레벨 계산 헬퍼 (Float32 PCM 데이터용)
+// RMS (Root Mean Square) 계산: 소리의 "에너지"를 나타냄
+// 반환값: 0.0 (무음) ~ 1.0 (최대)
+static float CalculateAudioLevel(const BYTE* data, UINT32 frames, UINT16 channels) {
+    if (data == nullptr || frames == 0) {
+        return 0.0f;
+    }
+
+    // WASAPI는 Float32 PCM (-1.0 ~ +1.0) 반환
+    const float* samples = reinterpret_cast<const float*>(data);
+    UINT32 total_samples = frames * channels;
+
+    // RMS 계산: sqrt(sum(x^2) / n)
+    double sum_squares = 0.0;
+    float peak = 0.0f;
+
+    for (UINT32 i = 0; i < total_samples; i++) {
+        float sample = samples[i];
+        sum_squares += sample * sample;
+
+        // Peak 레벨도 추적
+        float abs_sample = std::abs(sample);
+        if (abs_sample > peak) {
+            peak = abs_sample;
+        }
+    }
+
+    float rms = static_cast<float>(std::sqrt(sum_squares / total_samples));
+
+    // Peak 레벨 업데이트 (atomic)
+    g_peak_audio_level.store(peak);
+
+    return rms;
 }
 
 // Direct3D11 디바이스 생성
@@ -386,6 +440,113 @@ static void CleanupWASAPI() {
     fflush(stdout);
 }
 
+//==============================================================================
+// FFmpeg 파이프라인 보조 함수
+//==============================================================================
+
+// 입력: 없음
+// 출력: 타임스탬프와 카운터 초기화
+// 예외: 없음
+static void ResetRecordingStats() {
+    QueryPerformanceFrequency(&g_qpc_frequency);
+    QueryPerformanceCounter(&g_recording_start_qpc);
+    g_video_frame_count = 0;
+    g_audio_sample_count = 0;
+}
+
+// 입력: 없음 (큐 내부 데이터 사용)
+// 출력: 비디오 프레임을 FFmpeg 파이프에 전송했는지 여부
+// 예외: 파이프 오류 시 false, last_error 갱신
+static bool ProcessNextVideoFrame() {
+    std::unique_lock<std::mutex> lock(g_queue_mutex);
+    if (g_frame_queue.empty()) {
+        return false;
+    }
+
+    FrameData frame = std::move(g_frame_queue.front());
+    g_frame_queue.pop();
+    lock.unlock();
+
+    if (!g_ffmpeg_pipeline || !g_ffmpeg_pipeline->IsRunning()) {
+        SetLastError("FFmpeg 파이프라인이 실행 중이 아닙니다.");
+        return false;
+    }
+
+    if (!g_ffmpeg_pipeline->WriteVideo(frame.pixels.data(), frame.pixels.size())) {
+        SetLastError(g_ffmpeg_pipeline->last_error());
+        return false;
+    }
+
+    g_video_frame_count++;
+    if (g_video_frame_count == 1 || g_video_frame_count % 120 == 0) {
+        printf("[C++] 비디오 프레임 #%lld 전송 완료\n", g_video_frame_count);
+        fflush(stdout);
+    }
+    return true;
+}
+
+// 입력: 없음 (큐 내부 데이터 사용)
+// 출력: 오디오 샘플을 FFmpeg 파이프에 전송했는지 여부
+// 예외: 파이프 오류 시 false, last_error 갱신
+static bool ProcessNextAudioSample() {
+    std::unique_lock<std::mutex> lock(g_audio_queue_mutex);
+    if (g_audio_queue.empty()) {
+        return false;
+    }
+
+    AudioSample audio = std::move(g_audio_queue.front());
+    g_audio_queue.pop();
+    lock.unlock();
+
+    if (!g_ffmpeg_pipeline || !g_ffmpeg_pipeline->IsRunning()) {
+        SetLastError("FFmpeg 파이프라인이 실행 중이 아닙니다.");
+        return false;
+    }
+
+    if (!g_ffmpeg_pipeline->WriteAudio(audio.data.data(), audio.data.size())) {
+        SetLastError(g_ffmpeg_pipeline->last_error());
+        return false;
+    }
+
+    g_audio_sample_count += audio.frame_count;
+
+    static int audio_packet_count = 0;
+    audio_packet_count++;
+    if (audio_packet_count == 1 || audio_packet_count % 100 == 0) {
+        printf("[C++] 오디오 패킷 #%d 전송 완료\n", audio_packet_count);
+        fflush(stdout);
+    }
+
+    return true;
+}
+
+// 입력: 없음
+// 출력: 없음 (파이프에 데이터 지속 전송)
+// 예외: 파이프 오류 시 last_error 갱신 후 루프 종료
+static void EncoderThreadFunc() {
+    printf("[C++] FFmpeg 파이프 인코더 스레드 시작...\n");
+    fflush(stdout);
+
+    ResetRecordingStats();
+
+    while (g_is_recording || !g_frame_queue.empty() || !g_audio_queue.empty()) {
+        bool processed = false;
+        processed |= ProcessNextVideoFrame();
+        processed |= ProcessNextAudioSample();
+
+        if (!processed) {
+            Sleep(2);
+        }
+    }
+
+    while (ProcessNextVideoFrame() || ProcessNextAudioSample()) {
+        // 잔여 데이터 비우기
+    }
+
+    printf("[C++] FFmpeg 파이프 인코더 스레드 종료\n");
+    fflush(stdout);
+}
+
 // 프레임 큐에 추가 (나중에 FrameArrived에서 사용)
 [[maybe_unused]] static void EnqueueFrame(const FrameData& frame) {
     std::lock_guard<std::mutex> lock(g_queue_mutex);
@@ -480,6 +641,10 @@ static void AudioCaptureThreadFunc() {
 
             // 무음 플래그 확인
             if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
+                // Phase 3.1.2: 오디오 레벨 계산 및 업데이트
+                float audio_level = CalculateAudioLevel(data, frames_available, g_wave_format->nChannels);
+                g_current_audio_level.store(audio_level);
+
                 // 오디오 샘플 생성
                 AudioSample sample;
                 sample.frame_count = frames_available;
@@ -509,6 +674,10 @@ static void AudioCaptureThreadFunc() {
                     printf("[C++] 📊 오디오 샘플: %d개 캡처됨\n", sample_count);
                     fflush(stdout);
                 }
+            } else {
+                // Phase 3.1.2: 무음일 때 레벨 0으로 설정
+                g_current_audio_level.store(0.0f);
+                g_peak_audio_level.store(0.0f);
             }
 
             // 버퍼 해제
@@ -639,13 +808,42 @@ static void CaptureThreadFunc(
     // 오디오 캡처 스레드 시작
     g_audio_thread = std::thread(AudioCaptureThreadFunc);
 
-    // TODO Phase 2.3: Media Foundation 인코더 설정
+    // 출력 파일 경로를 wchar_t로 변환 (UTF-8 → UTF-16)
+    int wide_length = MultiByteToWideChar(CP_UTF8, 0, output_path.c_str(), -1, nullptr, 0);
+    std::wstring w_output_path(wide_length, 0);
+    MultiByteToWideChar(CP_UTF8, 0, output_path.c_str(), -1, &w_output_path[0], wide_length);
 
-    // 임시: 매개변수 미사용 경고 제거
-    (void)output_path;
-    (void)width;
-    (void)height;
-    (void)fps;
+    // FFmpeg 파이프라인 준비
+    g_video_width = width;
+    g_video_height = height;
+    g_video_fps = fps;
+
+    FFmpegLaunchConfig pipeline_config;
+    pipeline_config.output_path = w_output_path;
+    pipeline_config.video_width = width;
+    pipeline_config.video_height = height;
+    pipeline_config.video_fps = fps;
+    pipeline_config.audio_sample_rate = g_wave_format->nSamplesPerSec;
+    pipeline_config.audio_channels = g_wave_format->nChannels;
+    pipeline_config.enable_fragmented_mp4 = true;
+
+    g_ffmpeg_pipeline = std::make_unique<FFmpegPipeline>();
+    if (!g_ffmpeg_pipeline->Start(pipeline_config)) {
+        printf("[C++] ❌ FFmpeg 파이프라인 시작 실패: %s\n", g_ffmpeg_pipeline->last_error().c_str());
+        fflush(stdout);
+        g_ffmpeg_pipeline.reset();
+        CleanupWASAPI();
+        CleanupDXGIDuplication();
+        if (g_audio_thread.joinable()) g_audio_thread.join();
+        g_is_recording = false;
+        return;
+    }
+
+    // 인코더 스레드 시작
+    g_encoder_thread = std::thread(EncoderThreadFunc);
+
+    printf("[C++] ✅ 모든 초기화 완료, 녹화 시작\n");
+    fflush(stdout);
 
     // 메인 캡처 루프
     int frame_count = 0;
@@ -675,6 +873,13 @@ static void CaptureThreadFunc(
     printf("[C++] 캡처 루프 종료, 총 %d 프레임 캡처됨\n", frame_count);
     fflush(stdout);
 
+    // 인코더 스레드 종료 대기
+    if (g_encoder_thread.joinable()) {
+        printf("[C++] 인코더 스레드 종료 대기...\n");
+        fflush(stdout);
+        g_encoder_thread.join();
+    }
+
     // 오디오 스레드 종료 대기
     if (g_audio_thread.joinable()) {
         printf("[C++] 오디오 스레드 종료 대기...\n");
@@ -683,6 +888,10 @@ static void CaptureThreadFunc(
     }
 
     // 정리
+    if (g_ffmpeg_pipeline) {
+        g_ffmpeg_pipeline->Stop();
+        g_ffmpeg_pipeline.reset();
+    }
     CleanupWASAPI();
     CleanupDXGIDuplication();
     printf("[C++] 모든 리소스 정리 완료\n");
@@ -795,6 +1004,11 @@ void NativeRecorder_Cleanup() {
         g_audio_thread.join();
     }
 
+    if (g_ffmpeg_pipeline) {
+        g_ffmpeg_pipeline->Stop();
+        g_ffmpeg_pipeline.reset();
+    }
+
     // WASAPI 리소스 정리
     CleanupWASAPI();
 
@@ -815,6 +1029,53 @@ void NativeRecorder_Cleanup() {
 const char* NativeRecorder_GetLastError() {
     std::lock_guard<std::mutex> lock(g_error_mutex);
     return g_last_error.c_str();
+}
+
+// ============================================================================
+// Phase 3.1.1: 녹화 진행률 조회 함수들
+// ============================================================================
+
+// 현재까지 인코딩된 비디오 프레임 수 가져오기
+int64_t NativeRecorder_GetVideoFrameCount() {
+    return g_video_frame_count;
+}
+
+// 현재까지 인코딩된 오디오 샘플 수 가져오기
+int64_t NativeRecorder_GetAudioSampleCount() {
+    return g_audio_sample_count;
+}
+
+// 녹화 시작 이후 경과 시간 (밀리초)
+// 녹화 중이 아니면 0 반환
+int64_t NativeRecorder_GetElapsedTimeMs() {
+    if (!g_is_recording) {
+        return 0;
+    }
+
+    LARGE_INTEGER current_qpc;
+    QueryPerformanceCounter(&current_qpc);
+
+    // QPC 카운트 차이를 밀리초로 변환
+    int64_t elapsed_counts = current_qpc.QuadPart - g_recording_start_qpc.QuadPart;
+    int64_t elapsed_ms = (elapsed_counts * 1000LL) / g_qpc_frequency.QuadPart;
+
+    return elapsed_ms;
+}
+
+// ============================================================================
+// Phase 3.1.2: 오디오 레벨 조회 함수들
+// ============================================================================
+
+// 현재 오디오 RMS 레벨 가져오기 (0.0 ~ 1.0)
+// RMS (Root Mean Square)는 소리의 평균 에너지를 나타냄
+float NativeRecorder_GetAudioLevel() {
+    return g_current_audio_level.load();
+}
+
+// 현재 오디오 Peak 레벨 가져오기 (0.0 ~ 1.0)
+// Peak는 최대 진폭을 나타냄
+float NativeRecorder_GetAudioPeakLevel() {
+    return g_peak_audio_level.load();
 }
 
 }  // extern "C"
