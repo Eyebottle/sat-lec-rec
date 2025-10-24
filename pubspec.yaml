@@ -59,6 +59,9 @@ dependencies:
   # UI
   cupertino_icons: ^1.0.8
 
+  # UUID generation (Phase 3.2.1) - system_tray와 호환되는 버전
+  uuid: ^3.0.7
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

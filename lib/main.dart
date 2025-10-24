@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:logger/logger.dart';
 import 'services/recorder_service.dart';
+import 'services/schedule_service.dart';  // Phase 3.2.1
+import 'ui/widgets/recording_progress_widget.dart';
+import 'ui/screens/schedule_screen.dart';  // Phase 3.2.1
 
 final logger = Logger(
   printer: PrettyPrinter(
@@ -74,6 +77,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WindowListener {
   final RecorderService _recorderService = RecorderService();
+  final ScheduleService _scheduleService = ScheduleService();  // Phase 3.2.1
 
   @override
   void initState() {
@@ -81,23 +85,29 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     windowManager.addListener(this);
     // 빌드 완료 후 초기화 실행 (비동기)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _initializeRecorder();
+      await _initializeServices();
     });
   }
 
-  Future<void> _initializeRecorder() async {
+  Future<void> _initializeServices() async {
     try {
       logger.i('RecorderService 초기화 시작...');
       await _recorderService.initialize();
       logger.i('✅ RecorderService 초기화 완료');
+
+      // Phase 3.2.1: ScheduleService 초기화
+      logger.i('ScheduleService 초기화 시작...');
+      await _scheduleService.initialize();
+      logger.i('✅ ScheduleService 초기화 완료');
     } catch (e, stackTrace) {
-      logger.e('❌ RecorderService 초기화 실패', error: e, stackTrace: stackTrace);
+      logger.e('❌ 서비스 초기화 실패', error: e, stackTrace: stackTrace);
     }
   }
 
   @override
   void dispose() {
     _recorderService.dispose();
+    _scheduleService.dispose();  // Phase 3.2.1
     windowManager.removeListener(this);
     super.dispose();
   }
@@ -116,6 +126,18 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         title: const Text('sat-lec-rec - 토요일 강의 자동 녹화'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          // Phase 3.2.1: 스케줄 관리 버튼
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            tooltip: '스케줄 관리',
+            onPressed: () {
+              logger.d('스케줄 관리 버튼 클릭');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ScheduleScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -258,6 +280,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 ),
               ),
             ),
+            const SizedBox(height: 16),
+            // 녹화 진행률 표시 (Phase 3.1.1)
+            const RecordingProgressWidget(),
             const SizedBox(height: 16),
             // 상태 표시 카드
             Card(
