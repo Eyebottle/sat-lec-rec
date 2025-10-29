@@ -3,13 +3,48 @@
 #include "ffmpeg_pipeline.h"
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <sstream>
+#include <thread>
 #include <vector>
+#include <windows.h>
 
 namespace {
 constexpr DWORD kPipeBufferSizeVideo = 4 * 1024 * 1024;   // 비디오 파이프 버퍼 4MB
 constexpr DWORD kPipeBufferSizeAudio = 512 * 1024;        // 오디오 파이프 버퍼 512KB
+
+std::string WideToUtf8(const std::wstring& src) {
+  if (src.empty()) {
+    return {};
+  }
+
+  int utf8_length = WideCharToMultiByte(
+      CP_UTF8,
+      0,
+      src.c_str(),
+      static_cast<int>(src.size()),
+      nullptr,
+      0,
+      nullptr,
+      nullptr);
+
+  if (utf8_length <= 0) {
+    return {};
+  }
+
+  std::string result(utf8_length, '\0');
+  WideCharToMultiByte(
+      CP_UTF8,
+      0,
+      src.c_str(),
+      static_cast<int>(src.size()),
+      result.data(),
+      utf8_length,
+      nullptr,
+      nullptr);
+  return result;
+}
 }  // namespace
 
 // 입력: 없음
@@ -39,20 +74,82 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   }
 
   if (!CreateNamedPipes()) {
+    printf("[C++] ❌ Named Pipe 생성 실패: %s\n", last_error_.c_str());
+    fflush(stdout);
     return false;
   }
 
+  std::atomic<bool> video_connected{false};
+  std::atomic<bool> audio_connected{false};
+  DWORD video_error = ERROR_SUCCESS;
+  DWORD audio_error = ERROR_SUCCESS;
+
+  auto wait_for_pipe = [&](HANDLE pipe, const char* label,
+                           std::atomic<bool>& flag, DWORD& error_out) {
+    BOOL connected = ConnectNamedPipe(pipe, nullptr);
+    DWORD err = GetLastError();
+    if (connected || err == ERROR_PIPE_CONNECTED) {
+      flag.store(true);
+      error_out = ERROR_SUCCESS;
+      printf("[C++] %s 파이프 연결 완료\n", label);
+    } else {
+      flag.store(false);
+      error_out = err;
+      if (err != ERROR_OPERATION_ABORTED) {
+        printf("[C++] ❌ %s 파이프 ConnectNamedPipe 실패: 코드 %lu\n", label, err);
+      }
+    }
+    fflush(stdout);
+  };
+
+  std::thread video_connect_thread(wait_for_pipe, video_pipe_, "비디오",
+                                   std::ref(video_connected), std::ref(video_error));
+  std::thread audio_connect_thread(wait_for_pipe, audio_pipe_, "오디오",
+                                   std::ref(audio_connected), std::ref(audio_error));
+
   if (!LaunchProcess()) {
+    printf("[C++] ❌ FFmpeg 프로세스 실행 실패: %s\n", last_error_.c_str());
+    fflush(stdout);
+    DisconnectNamedPipe(video_pipe_);
+    DisconnectNamedPipe(audio_pipe_);
+    if (video_connect_thread.joinable()) {
+      video_connect_thread.join();
+    }
+    if (audio_connect_thread.joinable()) {
+      audio_connect_thread.join();
+    }
     CloseHandles();
     return false;
   }
 
-  if (!ConnectPipes()) {
+  if (video_connect_thread.joinable()) {
+    video_connect_thread.join();
+  }
+  if (audio_connect_thread.joinable()) {
+    audio_connect_thread.join();
+  }
+
+  if (!video_connected.load() || !audio_connected.load()) {
+    std::ostringstream oss;
+    oss << "파이프 연결 실패";
+    if (!video_connected.load()) {
+      oss << " (video=" << video_error << ")";
+    }
+    if (!audio_connected.load()) {
+      oss << " (audio=" << audio_error << ")";
+    }
+    SetLastError(oss.str());
+    printf("[C++] ❌ %s\n", oss.str().c_str());
+    fflush(stdout);
     Stop(true);
     return false;
   }
 
   is_running_ = true;
+  printf("[C++] ✅ FFmpeg 파이프라인 시작 (video pipe: %s, audio pipe: %s)\n",
+         WideToUtf8(video_pipe_name_).c_str(),
+         WideToUtf8(audio_pipe_name_).c_str());
+  fflush(stdout);
   return true;
 }
 
@@ -97,6 +194,12 @@ void FFmpegPipeline::Stop(bool force_kill) {
       TerminateProcess(process_info_.hProcess, 1);
       WaitForSingleObject(process_info_.hProcess, 2000);
     }
+
+    DWORD exit_code = 0;
+    if (GetExitCodeProcess(process_info_.hProcess, &exit_code)) {
+      printf("[C++] FFmpeg 프로세스 종료 코드: %lu\n", exit_code);
+      fflush(stdout);
+    }
   }
 
   CloseHandles();
@@ -121,7 +224,8 @@ bool FFmpegPipeline::CreateNamedPipes() {
       nullptr);
 
   if (video_pipe_ == INVALID_HANDLE_VALUE) {
-    SetLastError("비디오 파이프 생성에 실패했습니다.");
+    DWORD err = GetLastError();
+    SetLastError("비디오 파이프 생성에 실패했습니다. 코드: " + std::to_string(err));
     return false;
   }
 
@@ -136,7 +240,8 @@ bool FFmpegPipeline::CreateNamedPipes() {
       nullptr);
 
   if (audio_pipe_ == INVALID_HANDLE_VALUE) {
-    SetLastError("오디오 파이프 생성에 실패했습니다.");
+    DWORD err = GetLastError();
+    SetLastError("오디오 파이프 생성에 실패했습니다. 코드: " + std::to_string(err));
     if (video_pipe_ != INVALID_HANDLE_VALUE) {
       CloseHandle(video_pipe_);
       video_pipe_ = INVALID_HANDLE_VALUE;
@@ -163,6 +268,10 @@ bool FFmpegPipeline::LaunchProcess() {
     return false;
   }
 
+  printf("[C++] FFmpeg 경로: %s\n", WideToUtf8(ffmpeg_path).c_str());
+  printf("[C++] FFmpeg 명령: %s\n", WideToUtf8(command_line).c_str());
+  fflush(stdout);
+
   STARTUPINFOW startup_info;
   ZeroMemory(&startup_info, sizeof(startup_info));
   startup_info.cb = sizeof(startup_info);
@@ -183,7 +292,8 @@ bool FFmpegPipeline::LaunchProcess() {
       &process_info_);
 
   if (!created) {
-    SetLastError("FFmpeg 프로세스를 시작하지 못했습니다.");
+    DWORD err = GetLastError();
+    SetLastError("FFmpeg 프로세스를 시작하지 못했습니다. 코드: " + std::to_string(err));
     return false;
   }
 
@@ -193,30 +303,6 @@ bool FFmpegPipeline::LaunchProcess() {
 // 입력: 없음 (파이프 핸들 사용)
 // 출력: FFmpeg가 파이프에 연결되었는지 여부
 // 예외: 실패 시 last_error_에 메시지 기록
-bool FFmpegPipeline::ConnectPipes() {
-  auto wait_for_pipe = [](HANDLE pipe) {
-    BOOL connected = ConnectNamedPipe(pipe, nullptr);
-    if (!connected) {
-      DWORD err = GetLastError();
-      if (err == ERROR_PIPE_CONNECTED) {
-        return TRUE;
-      }
-      return FALSE;
-    }
-    return TRUE;
-  };
-
-  if (!wait_for_pipe(video_pipe_)) {
-    SetLastError("FFmpeg가 비디오 파이프에 연결하지 못했습니다.");
-    return false;
-  }
-  if (!wait_for_pipe(audio_pipe_)) {
-    SetLastError("FFmpeg가 오디오 파이프에 연결하지 못했습니다.");
-    return false;
-  }
-  return true;
-}
-
 // 입력: 없음 (현재 프로세스 위치 기반)
 // 출력: 탐색된 ffmpeg.exe 절대 경로
 // 예외: 없음 (찾지 못하면 빈 문자열 반환)
@@ -248,15 +334,16 @@ std::wstring FFmpegPipeline::ResolveFFmpegPath() const {
 // 예외: 없음 (구성 실패 시 빈 문자열 반환)
 std::wstring FFmpegPipeline::BuildCommandLine(const std::wstring& ffmpeg_path) const {
   std::wostringstream oss;
-  oss << L'"' << ffmpeg_path << L""";
-  oss << L" -hide_banner -loglevel warning -y";
-  oss << L" -f rawvideo -pix_fmt bgra -vf vflip";
+  oss << L"\"" << ffmpeg_path << L"\"";
+  oss << L" -hide_banner -loglevel verbose -report -y";
+  oss << L" -f rawvideo -pix_fmt bgra";
   oss << L" -s " << config_.video_width << L"x" << config_.video_height;
   oss << L" -r " << config_.video_fps;
   oss << L" -i \"" << video_pipe_name_ << L"\"";
   oss << L" -f f32le -ar " << config_.audio_sample_rate;
   oss << L" -ac " << config_.audio_channels;
   oss << L" -i \"" << audio_pipe_name_ << L"\"";
+  oss << L" -vf vflip";
   oss << L" -c:v libx264 -preset veryfast -crf 23";
   oss << L" -c:a aac -b:a 192k";
 
@@ -270,7 +357,7 @@ std::wstring FFmpegPipeline::BuildCommandLine(const std::wstring& ffmpeg_path) c
     oss << L" -reset_timestamps 1";
   }
 
-  oss << L" " << L'"' << config_.output_path << L'"';
+  oss << L" \"" << config_.output_path << L"\"";
 
   return oss.str();
 }
@@ -327,11 +414,13 @@ bool FFmpegPipeline::WriteToPipe(HANDLE pipe, const uint8_t* data, size_t length
     BOOL success = WriteFile(pipe, data + total_written, to_write, &chunk, nullptr);
     if (!success || chunk == 0) {
       DWORD error = GetLastError();
+      std::string message = std::string(label) + " 파이프에 데이터를 쓰지 못했습니다. 코드: " + std::to_string(error);
       if (error == ERROR_NO_DATA) {
-        SetLastError(std::string(label) + " 파이프가 닫혔습니다.");
-      } else {
-        SetLastError(std::string(label) + " 파이프에 데이터를 쓰지 못했습니다.");
+        message += " (파이프가 닫혔습니다)";
       }
+      SetLastError(message);
+      printf("[C++] ❌ %s\n", message.c_str());
+      fflush(stdout);
       return false;
     }
     total_written += chunk;

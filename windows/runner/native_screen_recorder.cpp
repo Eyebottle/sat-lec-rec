@@ -810,8 +810,18 @@ static void CaptureThreadFunc(
 
     // 출력 파일 경로를 wchar_t로 변환 (UTF-8 → UTF-16)
     int wide_length = MultiByteToWideChar(CP_UTF8, 0, output_path.c_str(), -1, nullptr, 0);
-    std::wstring w_output_path(wide_length, 0);
-    MultiByteToWideChar(CP_UTF8, 0, output_path.c_str(), -1, &w_output_path[0], wide_length);
+    if (wide_length <= 1) {
+        printf("[C++] ❌ 출력 경로 UTF-16 변환 실패\n");
+        fflush(stdout);
+        CleanupWASAPI();
+        CleanupDXGIDuplication();
+        if (g_audio_thread.joinable()) g_audio_thread.join();
+        g_is_recording = false;
+        return;
+    }
+
+    std::wstring w_output_path(wide_length - 1, 0);
+    MultiByteToWideChar(CP_UTF8, 0, output_path.c_str(), -1, w_output_path.data(), wide_length);
 
     // FFmpeg 파이프라인 준비
     g_video_width = width;

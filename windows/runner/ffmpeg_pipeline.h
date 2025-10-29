@@ -43,7 +43,6 @@ class FFmpegPipeline {
  private:
   bool CreateNamedPipes();
   bool LaunchProcess();
-  bool ConnectPipes();
   std::wstring ResolveFFmpegPath() const;
   std::wstring BuildCommandLine(const std::wstring& ffmpeg_path) const;
   void CloseHandles();

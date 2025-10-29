@@ -53,6 +53,26 @@ NATIVE_RECORDER_EXPORT void NativeRecorder_Cleanup();
 /// @return UTF-8 인코딩된 에러 메시지 (수명은 다음 호출까지 유효)
 NATIVE_RECORDER_EXPORT const char* NativeRecorder_GetLastError();
 
+/// 현재까지 인코딩된 비디오 프레임 수 가져오기
+/// @return 비디오 프레임 수
+NATIVE_RECORDER_EXPORT int64_t NativeRecorder_GetVideoFrameCount();
+
+/// 현재까지 인코딩된 오디오 샘플 수 가져오기
+/// @return 오디오 샘플 수
+NATIVE_RECORDER_EXPORT int64_t NativeRecorder_GetAudioSampleCount();
+
+/// 녹화 시작 이후 경과 시간 가져오기 (밀리초)
+/// @return 경과 시간 (ms), 녹화 중이 아니면 0
+NATIVE_RECORDER_EXPORT int64_t NativeRecorder_GetElapsedTimeMs();
+
+/// 현재 오디오 RMS 레벨 가져오기 (Phase 3.1.2)
+/// @return RMS 레벨 (0.0 ~ 1.0), 녹화 중이 아니면 0.0
+NATIVE_RECORDER_EXPORT float NativeRecorder_GetAudioLevel();
+
+/// 현재 오디오 Peak 레벨 가져오기 (Phase 3.1.2)
+/// @return Peak 레벨 (0.0 ~ 1.0), 녹화 중이 아니면 0.0
+NATIVE_RECORDER_EXPORT float NativeRecorder_GetAudioPeakLevel();
+
 #ifdef __cplusplus
 }
 #endif

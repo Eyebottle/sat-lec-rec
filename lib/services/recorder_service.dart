@@ -6,6 +6,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
 import 'package:ffi/ffi.dart';
@@ -157,12 +158,13 @@ class RecorderService {
 
   /// 저장 파일 경로 생성
   ///
-  /// @return 절대 경로 (예: D:/SaturdayZoomRec/20251022_0835_test.mp4)
+  /// @return 절대 경로 (예: C:\Users\user\Documents\SaturdayZoomRec\20251022_0835_test.mp4)
   Future<String> _generateOutputPath() async {
     // TODO: 설정에서 저장 경로 가져오기 (SharedPreferences)
     // 현재는 Documents 폴더 사용
     final documentsDir = await getApplicationDocumentsDirectory();
-    final recordingDir = Directory('${documentsDir.path}/SaturdayZoomRec');
+    final recordingDirPath = path.join(documentsDir.path, 'SaturdayZoomRec');
+    final recordingDir = Directory(recordingDirPath);
 
     // 폴더 생성 (없으면)
     if (!await recordingDir.exists()) {
@@ -173,7 +175,7 @@ class RecorderService {
     final now = DateTime.now();
     final filename = '${_formatDate(now)}_${_formatTime(now)}_test.mp4';
 
-    return '${recordingDir.path}/$filename';
+    return path.join(recordingDir.path, filename);
   }
 
   /// 날짜 포맷 (YYYYMMDD)
