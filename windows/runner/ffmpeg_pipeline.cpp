@@ -74,38 +74,52 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   }
 
   if (!CreateNamedPipes()) {
-    printf("[C++] ❌ Named Pipe 생성 실패: %s\n", last_error_.c_str());
+    printf("[C++] ❌ Named pipe creation failed: %s\n", last_error_.c_str());
     fflush(stdout);
     return false;
   }
 
+  printf("[C++] video pipe name: %s\n", WideToUtf8(video_pipe_name_).c_str());
+  printf("[C++] audio pipe name: %s\n", WideToUtf8(audio_pipe_name_).c_str());
+  fflush(stdout);
+
   std::atomic<bool> video_connected{false};
   std::atomic<bool> audio_connected{false};
+  std::atomic<bool> video_waiting{false};
+  std::atomic<bool> audio_waiting{false};
   DWORD video_error = ERROR_SUCCESS;
   DWORD audio_error = ERROR_SUCCESS;
 
   auto wait_for_pipe = [&](HANDLE pipe, const char* label,
-                           std::atomic<bool>& flag, DWORD& error_out) {
+                           std::atomic<bool>& flag, std::atomic<bool>& waiting_flag, DWORD& error_out) {
+    waiting_flag.store(true, std::memory_order_release);
+    printf("[C++] %s pipe wait start\n", label);
+    fflush(stdout);
     BOOL connected = ConnectNamedPipe(pipe, nullptr);
     DWORD err = GetLastError();
     if (connected || err == ERROR_PIPE_CONNECTED) {
-      flag.store(true);
+      flag.store(true, std::memory_order_release);
       error_out = ERROR_SUCCESS;
-      printf("[C++] %s 파이프 연결 완료\n", label);
+      printf("[C++] %s pipe connected\n", label);
     } else {
-      flag.store(false);
+      flag.store(false, std::memory_order_release);
       error_out = err;
       if (err != ERROR_OPERATION_ABORTED) {
-        printf("[C++] ❌ %s 파이프 ConnectNamedPipe 실패: 코드 %lu\n", label, err);
+        printf("[C++] ❌ %s pipe ConnectNamedPipe failed: code %lu\n", label, err);
       }
     }
     fflush(stdout);
   };
 
-  std::thread video_connect_thread(wait_for_pipe, video_pipe_, "비디오",
-                                   std::ref(video_connected), std::ref(video_error));
-  std::thread audio_connect_thread(wait_for_pipe, audio_pipe_, "오디오",
-                                   std::ref(audio_connected), std::ref(audio_error));
+  std::thread video_connect_thread(wait_for_pipe, video_pipe_, "video",
+                                   std::ref(video_connected), std::ref(video_waiting), std::ref(video_error));
+  std::thread audio_connect_thread(wait_for_pipe, audio_pipe_, "audio",
+                                   std::ref(audio_connected), std::ref(audio_waiting), std::ref(audio_error));
+
+  while (!video_waiting.load(std::memory_order_acquire) ||
+         !audio_waiting.load(std::memory_order_acquire)) {
+    Sleep(1);
+  }
 
   if (!LaunchProcess()) {
     printf("[C++] ❌ FFmpeg 프로세스 실행 실패: %s\n", last_error_.c_str());
@@ -129,9 +143,16 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     audio_connect_thread.join();
   }
 
+  printf("[C++] pipe connect results - video:%s (err=%lu) audio:%s (err=%lu)\n",
+         video_connected.load() ? "ok" : "fail",
+         static_cast<unsigned long>(video_error),
+         audio_connected.load() ? "ok" : "fail",
+         static_cast<unsigned long>(audio_error));
+  fflush(stdout);
+
   if (!video_connected.load() || !audio_connected.load()) {
     std::ostringstream oss;
-    oss << "파이프 연결 실패";
+    oss << "pipe connection failed";
     if (!video_connected.load()) {
       oss << " (video=" << video_error << ")";
     }
