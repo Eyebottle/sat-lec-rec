@@ -539,18 +539,18 @@ std::wstring FFmpegPipeline::BuildCommandLine(const std::wstring& ffmpeg_path) c
   oss << L"\"" << ffmpeg_path << L"\"";
   oss << L" -hide_banner -loglevel verbose -report -y";
 
-  // Audio 입력 먼저 (순차 처리 문제 우회)
-  oss << L" -thread_queue_size 1024";
-  oss << L" -f f32le -ar " << config_.audio_sample_rate;
-  oss << L" -ac " << config_.audio_channels;
-  oss << L" -i " << audio_pipe_name_;  // 따옴표 제거
-
-  // Video 입력 나중에
+  // Video 입력을 먼저 지정 (FFmpeg가 비디오 파이프를 먼저 열도록)
   oss << L" -thread_queue_size 1024";
   oss << L" -f rawvideo -pix_fmt bgra";
   oss << L" -s " << config_.video_width << L"x" << config_.video_height;
   oss << L" -r " << config_.video_fps;
   oss << L" -i " << video_pipe_name_;  // 따옴표 제거
+
+  // Audio 입력 나중에
+  oss << L" -thread_queue_size 1024";
+  oss << L" -f f32le -ar " << config_.audio_sample_rate;
+  oss << L" -ac " << config_.audio_channels;
+  oss << L" -i " << audio_pipe_name_;  // 따옴표 제거
 
   oss << L" -vf vflip";
   oss << L" -c:v libx264 -preset veryfast -crf 23";
