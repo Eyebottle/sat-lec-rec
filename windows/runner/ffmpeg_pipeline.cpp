@@ -252,11 +252,11 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     DWORD audio_wait_result = WaitForSingleObject(audio_event_, 10000);  // 10초 타임아웃
     
     // FFmpeg 프로세스 상태 확인 (파이프 연결 실패로 종료되었을 수 있음)
-    DWORD exit_code = 0;
-    if (GetExitCodeProcess(process_info_.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
-      printf("[C++] ❌ FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", exit_code);
+    DWORD audio_exit_code = 0;
+    if (GetExitCodeProcess(process_info_.hProcess, &audio_exit_code) && audio_exit_code != STILL_ACTIVE) {
+      printf("[C++] ❌ FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", audio_exit_code);
       fflush(stdout);
-      SetLastError("FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(exit_code));
+      SetLastError("FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(audio_exit_code));
       CancelIoEx(audio_pipe_, &audio_overlapped_);
       CancelIoEx(video_pipe_, &video_overlapped_);
       CloseHandle(audio_event_);
@@ -343,12 +343,12 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
       }
       
       // FFmpeg 프로세스 상태 확인 (Video 파이프 연결 실패로 종료되었을 수 있음)
-      DWORD exit_code = 0;
-      if (GetExitCodeProcess(process_info_.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
-        printf("[C++] ❌ FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", exit_code);
+      DWORD video_exit_code = 0;
+      if (GetExitCodeProcess(process_info_.hProcess, &video_exit_code) && video_exit_code != STILL_ACTIVE) {
+        printf("[C++] ❌ FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", video_exit_code);
         printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
         fflush(stdout);
-        SetLastError("FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(exit_code));
+        SetLastError("FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(video_exit_code));
         CancelIoEx(video_pipe_, &video_overlapped_);
         CloseHandle(audio_event_);
         audio_event_ = nullptr;
