@@ -21,6 +21,15 @@ typedef NativeIsRecordingFunc = ffi.Int32 Function();
 typedef NativeCleanupFunc = ffi.Void Function();
 typedef NativeGetLastErrorFunc = ffi.Pointer<Utf8> Function();
 
+// Phase 3.1.1: 녹화 진행률 조회 함수
+typedef NativeGetVideoFrameCountFunc = ffi.Int64 Function();
+typedef NativeGetAudioSampleCountFunc = ffi.Int64 Function();
+typedef NativeGetElapsedTimeMsFunc = ffi.Int64 Function();
+
+// Phase 3.1.2: 오디오 레벨 조회 함수
+typedef NativeGetAudioLevelFunc = ffi.Float Function();
+typedef NativeGetAudioPeakLevelFunc = ffi.Float Function();
+
 /// Dart 함수 시그니처 정의
 typedef DartInitializeFunc = int Function();
 typedef DartStartRecordingFunc = int Function(
@@ -33,6 +42,15 @@ typedef DartStopRecordingFunc = int Function();
 typedef DartIsRecordingFunc = int Function();
 typedef DartCleanupFunc = void Function();
 typedef DartGetLastErrorFunc = ffi.Pointer<Utf8> Function();
+
+// Phase 3.1.1: Dart 진행률 조회 함수 시그니처
+typedef DartGetVideoFrameCountFunc = int Function();
+typedef DartGetAudioSampleCountFunc = int Function();
+typedef DartGetElapsedTimeMsFunc = int Function();
+
+// Phase 3.1.2: Dart 오디오 레벨 조회 함수 시그니처
+typedef DartGetAudioLevelFunc = double Function();
+typedef DartGetAudioPeakLevelFunc = double Function();
 
 /// 네이티브 라이브러리 로드
 ffi.DynamicLibrary _loadLibrary() {
@@ -71,6 +89,28 @@ class NativeRecorderBindings {
 
   static final DartGetLastErrorFunc getLastError = _lib
       .lookup<ffi.NativeFunction<NativeGetLastErrorFunc>>('NativeRecorder_GetLastError')
+      .asFunction();
+
+  /// Phase 3.1.1: 녹화 진행률 조회 함수 바인딩
+  static final DartGetVideoFrameCountFunc getVideoFrameCount = _lib
+      .lookup<ffi.NativeFunction<NativeGetVideoFrameCountFunc>>('NativeRecorder_GetVideoFrameCount')
+      .asFunction();
+
+  static final DartGetAudioSampleCountFunc getAudioSampleCount = _lib
+      .lookup<ffi.NativeFunction<NativeGetAudioSampleCountFunc>>('NativeRecorder_GetAudioSampleCount')
+      .asFunction();
+
+  static final DartGetElapsedTimeMsFunc getElapsedTimeMs = _lib
+      .lookup<ffi.NativeFunction<NativeGetElapsedTimeMsFunc>>('NativeRecorder_GetElapsedTimeMs')
+      .asFunction();
+
+  /// Phase 3.1.2: 오디오 레벨 조회 함수 바인딩
+  static final DartGetAudioLevelFunc getAudioLevel = _lib
+      .lookup<ffi.NativeFunction<NativeGetAudioLevelFunc>>('NativeRecorder_GetAudioLevel')
+      .asFunction();
+
+  static final DartGetAudioPeakLevelFunc getAudioPeakLevel = _lib
+      .lookup<ffi.NativeFunction<NativeGetAudioPeakLevelFunc>>('NativeRecorder_GetAudioPeakLevel')
       .asFunction();
 }
 

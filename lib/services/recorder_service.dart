@@ -158,17 +158,20 @@ class RecorderService {
 
   /// 저장 파일 경로 생성
   ///
-  /// @return 절대 경로 (예: C:\Users\user\Documents\SaturdayZoomRec\20251022_0835_test.mp4)
+  /// @return 절대 경로 (예: C:\SatLecRec\recordings\20251022_0835_test.mp4)
   Future<String> _generateOutputPath() async {
-    // TODO: 설정에서 저장 경로 가져오기 (SharedPreferences)
-    // 현재는 Documents 폴더 사용
-    final documentsDir = await getApplicationDocumentsDirectory();
-    final recordingDirPath = path.join(documentsDir.path, 'SaturdayZoomRec');
+    // OneDrive Documents 대신 로컬 C 드라이브 사용
+    // 이유:
+    // 1. OneDrive 실시간 동기화가 FFmpeg 파일 쓰기 방해 가능
+    // 2. 한글 경로 (문서) 제거로 FFmpeg 호환성 향상
+    // 3. 짧고 명확한 경로로 디버깅 용이
+    final recordingDirPath = r'C:\SatLecRec\recordings';
     final recordingDir = Directory(recordingDirPath);
 
     // 폴더 생성 (없으면)
     if (!await recordingDir.exists()) {
       await recordingDir.create(recursive: true);
+      _logger.i('📁 녹화 폴더 생성: $recordingDirPath');
     }
 
     // 파일명 생성: YYYYMMDD_HHMM_test.mp4

@@ -58,6 +58,11 @@ class FFmpegPipeline {
   std::wstring audio_pipe_name_;
   bool is_running_ = false;
   std::string last_error_;
+  // OVERLAPPED I/O 구조체 (비동기 파이프 연결용)
+  OVERLAPPED audio_overlapped_{};
+  OVERLAPPED video_overlapped_{};
+  HANDLE audio_event_ = nullptr;
+  HANDLE video_event_ = nullptr;
 };
 
 #endif  // SAT_LEC_REC_FFMPEG_PIPELINE_H_

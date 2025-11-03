@@ -489,28 +489,64 @@ static bool ProcessNextVideoFrame() {
 // 출력: 오디오 샘플을 FFmpeg 파이프에 전송했는지 여부
 // 예외: 파이프 오류 시 false, last_error 갱신
 static bool ProcessNextAudioSample() {
+    static int audio_packet_count = 0;
+    static int audio_debug_log_count = 0;
+
     std::unique_lock<std::mutex> lock(g_audio_queue_mutex);
     if (g_audio_queue.empty()) {
         return false;
     }
 
+    size_t queue_size_before_pop = g_audio_queue.size();
     AudioSample audio = std::move(g_audio_queue.front());
     g_audio_queue.pop();
     lock.unlock();
+
+    size_t queue_remaining = queue_size_before_pop > 0 ? queue_size_before_pop - 1 : 0;
 
     if (!g_ffmpeg_pipeline || !g_ffmpeg_pipeline->IsRunning()) {
         SetLastError("FFmpeg 파이프라인이 실행 중이 아닙니다.");
         return false;
     }
 
+    int next_packet_index = audio_packet_count + 1;
+    double elapsed_ms = 0.0;
+    if (g_qpc_frequency.QuadPart > 0) {
+        long double start_qpc = static_cast<long double>(g_recording_start_qpc.QuadPart);
+        long double audio_qpc = static_cast<long double>(audio.timestamp);
+        long double delta = audio_qpc - start_qpc;
+        if (delta < 0.0L) {
+            delta = 0.0L;
+        }
+        elapsed_ms = static_cast<double>(delta * 1000.0L /
+                                         static_cast<long double>(g_qpc_frequency.QuadPart));
+    }
+
+    if (audio_debug_log_count < 5) {
+        printf("[C++] 오디오 패킷 #%d 준비 - 바이트:%llu, 프레임:%u, 잔여 큐:%llu, 경과:%.2fms\n",
+               next_packet_index,
+               static_cast<unsigned long long>(audio.data.size()),
+               audio.frame_count,
+               static_cast<unsigned long long>(queue_remaining),
+               elapsed_ms);
+        fflush(stdout);
+        audio_debug_log_count++;
+    }
+
     if (!g_ffmpeg_pipeline->WriteAudio(audio.data.data(), audio.data.size())) {
-        SetLastError(g_ffmpeg_pipeline->last_error());
+        const std::string pipeline_error = g_ffmpeg_pipeline->last_error();
+        printf("[C++] ❌ 오디오 패킷 #%d 파이프 전송 실패\n", next_packet_index);
+        printf("[C++]    에러 메시지: %s\n", pipeline_error.c_str());
+        printf("[C++]    데이터 크기: %llu bytes\n", static_cast<unsigned long long>(audio.data.size()));
+        printf("[C++]    프레임 수: %u\n", audio.frame_count);
+        printf("[C++]    파이프라인 실행 중: %s\n", g_ffmpeg_pipeline->IsRunning() ? "예" : "아니오");
+        fflush(stdout);
+        SetLastError(pipeline_error.empty() ? "오디오 파이프 전송 실패" : pipeline_error);
         return false;
     }
 
     g_audio_sample_count += audio.frame_count;
 
-    static int audio_packet_count = 0;
     audio_packet_count++;
     if (audio_packet_count == 1 || audio_packet_count % 100 == 0) {
         printf("[C++] 오디오 패킷 #%d 전송 완료\n", audio_packet_count);
@@ -837,10 +873,32 @@ static void CaptureThreadFunc(
     pipeline_config.audio_channels = g_wave_format->nChannels;
     pipeline_config.enable_fragmented_mp4 = true;
 
-    g_ffmpeg_pipeline = std::make_unique<FFmpegPipeline>();
-    if (!g_ffmpeg_pipeline->Start(pipeline_config)) {
-        printf("[C++] ❌ FFmpeg 파이프라인 시작 실패: %s\n", g_ffmpeg_pipeline->last_error().c_str());
+    try {
+        g_ffmpeg_pipeline = std::make_unique<FFmpegPipeline>();
+        if (!g_ffmpeg_pipeline->Start(pipeline_config)) {
+            printf("[C++] ❌ FFmpeg 파이프라인 시작 실패: %s\n", g_ffmpeg_pipeline->last_error().c_str());
+            fflush(stdout);
+            g_ffmpeg_pipeline.reset();
+            CleanupWASAPI();
+            CleanupDXGIDuplication();
+            if (g_audio_thread.joinable()) g_audio_thread.join();
+            g_is_recording = false;
+            return;
+        }
+    } catch (const std::exception& e) {
+        printf("[C++] ❌ FFmpeg 파이프라인 시작 중 예외 발생: %s\n", e.what());
         fflush(stdout);
+        SetLastError(std::string("FFmpeg 파이프라인 시작 예외: ") + e.what());
+        g_ffmpeg_pipeline.reset();
+        CleanupWASAPI();
+        CleanupDXGIDuplication();
+        if (g_audio_thread.joinable()) g_audio_thread.join();
+        g_is_recording = false;
+        return;
+    } catch (...) {
+        printf("[C++] ❌ FFmpeg 파이프라인 시작 중 알 수 없는 예외 발생\n");
+        fflush(stdout);
+        SetLastError("FFmpeg 파이프라인 시작 중 알 수 없는 예외 발생");
         g_ffmpeg_pipeline.reset();
         CleanupWASAPI();
         CleanupDXGIDuplication();
