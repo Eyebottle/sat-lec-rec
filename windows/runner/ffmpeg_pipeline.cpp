@@ -108,10 +108,10 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     fflush(stdout);
     printf("[C++] [Audio] ConnectNamedPipe 호출 직전...\n");
     fflush(stdout);
-    audio_waiting.store(true, std::memory_order_release);  // 호출 직전 알림
-    printf("[C++] [Audio] ConnectNamedPipe 호출 (블로킹 대기)...\n");
-    fflush(stdout);
+
     BOOL connected = ConnectNamedPipe(audio_pipe_, nullptr);  // 동기 모드 - 블로킹
+    audio_waiting.store(true, std::memory_order_release);  // 호출 후 플래그 설정
+
     DWORD err = GetLastError();
     printf("[C++] [Audio] ConnectNamedPipe 반환: connected=%d, err=%lu\n", connected, err);
     fflush(stdout);
@@ -133,10 +133,10 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     fflush(stdout);
     printf("[C++] [Video] ConnectNamedPipe 호출 직전...\n");
     fflush(stdout);
-    video_waiting.store(true, std::memory_order_release);  // 호출 직전 알림
-    printf("[C++] [Video] ConnectNamedPipe 호출 (블로킹 대기)...\n");
-    fflush(stdout);
+
     BOOL connected = ConnectNamedPipe(video_pipe_, nullptr);  // 동기 모드 - 블로킹
+    video_waiting.store(true, std::memory_order_release);  // 호출 후 플래그 설정
+
     DWORD err = GetLastError();
     printf("[C++] [Video] ConnectNamedPipe 반환: connected=%d, err=%lu\n", connected, err);
     fflush(stdout);
