@@ -102,16 +102,15 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   DWORD audio_error = ERROR_SUCCESS;
   DWORD video_error = ERROR_SUCCESS;
 
-  // Audio 연결 스레드 (동기 ConnectNamedPipe - 블로킹)
-  std::thread audio_thread([&]() {
+  auto audio_worker = [&]() {
     printf("[C++] [Audio] ConnectNamedPipe 스레드 시작...\n");
     fflush(stdout);
     printf("[C++] [Audio] ConnectNamedPipe 호출 직전...\n");
     fflush(stdout);
-
-    BOOL connected = ConnectNamedPipe(audio_pipe_, nullptr);  // 동기 모드 - 블로킹
-    audio_waiting.store(true, std::memory_order_release);  // 호출 후 플래그 설정
-
+    audio_waiting.store(true, std::memory_order_release);
+    printf("[C++] [Audio] ConnectNamedPipe 호출 (블로킹 대기)...\n");
+    fflush(stdout);
+    BOOL connected = ConnectNamedPipe(audio_pipe_, nullptr);
     DWORD err = GetLastError();
     printf("[C++] [Audio] ConnectNamedPipe 반환: connected=%d, err=%lu\n", connected, err);
     fflush(stdout);
@@ -125,18 +124,17 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
       printf("[C++] ❌ [Audio] 파이프 연결 실패: err=%lu\n", err);
     }
     fflush(stdout);
-  });
+  };
 
-  // Video 연결 스레드 (동기 ConnectNamedPipe - 블로킹)
-  std::thread video_thread([&]() {
+  auto video_worker = [&]() {
     printf("[C++] [Video] ConnectNamedPipe 스레드 시작...\n");
     fflush(stdout);
     printf("[C++] [Video] ConnectNamedPipe 호출 직전...\n");
     fflush(stdout);
-
-    BOOL connected = ConnectNamedPipe(video_pipe_, nullptr);  // 동기 모드 - 블로킹
-    video_waiting.store(true, std::memory_order_release);  // 호출 후 플래그 설정
-
+    video_waiting.store(true, std::memory_order_release);
+    printf("[C++] [Video] ConnectNamedPipe 호출 (블로킹 대기)...\n");
+    fflush(stdout);
+    BOOL connected = ConnectNamedPipe(video_pipe_, nullptr);
     DWORD err = GetLastError();
     printf("[C++] [Video] ConnectNamedPipe 반환: connected=%d, err=%lu\n", connected, err);
     fflush(stdout);
@@ -150,17 +148,30 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
       printf("[C++] ❌ [Video] 파이프 연결 실패: err=%lu\n", err);
     }
     fflush(stdout);
-  });
+  };
 
-  // 두 스레드가 ConnectNamedPipe를 호출할 때까지 대기 (블로킹 상태 확인)
-  printf("[C++] 두 ConnectNamedPipe 호출 완료 대기...\n");
+  // Video 스레드를 먼저 시작하여 빠르게 대기 상태로 전환
+  printf("[C++] [Video] ConnectNamedPipe 스레드 실행 시작...\n");
   fflush(stdout);
-  while (!audio_waiting.load(std::memory_order_acquire) || !video_waiting.load(std::memory_order_acquire)) {
+  std::thread video_thread(video_worker);
+
+  while (!video_waiting.load(std::memory_order_acquire)) {
     Sleep(1);
   }
-  printf("[C++] ✅ 두 ConnectNamedPipe 모두 호출 완료 (블로킹 상태)\n");
+  printf("[C++] ✅ [Video] ConnectNamedPipe 호출 완료 (블로킹 대기 중)\n");
   fflush(stdout);
-  
+
+  // Audio 스레드를 나중에 시작
+  printf("[C++] [Audio] ConnectNamedPipe 스레드 실행 시작...\n");
+  fflush(stdout);
+  std::thread audio_thread(audio_worker);
+
+  while (!audio_waiting.load(std::memory_order_acquire)) {
+    Sleep(1);
+  }
+  printf("[C++] ✅ [Audio] ConnectNamedPipe 호출 완료 (블로킹 대기 중)\n");
+  fflush(stdout);
+
   // 안정화 대기
   Sleep(200);
 
