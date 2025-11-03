@@ -97,15 +97,24 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   std::atomic<bool> video_connected{false};
   std::atomic<bool> audio_failed{false};
   std::atomic<bool> video_failed{false};
+  std::atomic<bool> audio_waiting{false};  // ConnectNamedPipe 호출 완료 플래그
+  std::atomic<bool> video_waiting{false};  // ConnectNamedPipe 호출 완료 플래그
   DWORD audio_error = ERROR_SUCCESS;
   DWORD video_error = ERROR_SUCCESS;
 
   // Audio 연결 스레드 (동기 ConnectNamedPipe - 블로킹)
   std::thread audio_thread([&]() {
-    printf("[C++] [Audio] ConnectNamedPipe 스레드 시작 (블로킹 대기)...\n");
+    printf("[C++] [Audio] ConnectNamedPipe 스레드 시작...\n");
     fflush(stdout);
-    BOOL connected = ConnectNamedPipe(audio_pipe_, nullptr);  // 동기 모드
+    printf("[C++] [Audio] ConnectNamedPipe 호출 직전...\n");
+    fflush(stdout);
+    audio_waiting.store(true, std::memory_order_release);  // 호출 직전 알림
+    printf("[C++] [Audio] ConnectNamedPipe 호출 (블로킹 대기)...\n");
+    fflush(stdout);
+    BOOL connected = ConnectNamedPipe(audio_pipe_, nullptr);  // 동기 모드 - 블로킹
     DWORD err = GetLastError();
+    printf("[C++] [Audio] ConnectNamedPipe 반환: connected=%d, err=%lu\n", connected, err);
+    fflush(stdout);
     if (connected || err == ERROR_PIPE_CONNECTED) {
       audio_connected.store(true, std::memory_order_release);
       audio_error = ERROR_SUCCESS;
@@ -120,10 +129,17 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
 
   // Video 연결 스레드 (동기 ConnectNamedPipe - 블로킹)
   std::thread video_thread([&]() {
-    printf("[C++] [Video] ConnectNamedPipe 스레드 시작 (블로킹 대기)...\n");
+    printf("[C++] [Video] ConnectNamedPipe 스레드 시작...\n");
     fflush(stdout);
-    BOOL connected = ConnectNamedPipe(video_pipe_, nullptr);  // 동기 모드
+    printf("[C++] [Video] ConnectNamedPipe 호출 직전...\n");
+    fflush(stdout);
+    video_waiting.store(true, std::memory_order_release);  // 호출 직전 알림
+    printf("[C++] [Video] ConnectNamedPipe 호출 (블로킹 대기)...\n");
+    fflush(stdout);
+    BOOL connected = ConnectNamedPipe(video_pipe_, nullptr);  // 동기 모드 - 블로킹
     DWORD err = GetLastError();
+    printf("[C++] [Video] ConnectNamedPipe 반환: connected=%d, err=%lu\n", connected, err);
+    fflush(stdout);
     if (connected || err == ERROR_PIPE_CONNECTED) {
       video_connected.store(true, std::memory_order_release);
       video_error = ERROR_SUCCESS;
@@ -136,8 +152,17 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     fflush(stdout);
   });
 
-  // 두 스레드가 ConnectNamedPipe를 호출할 때까지 짧은 대기
-  Sleep(100);
+  // 두 스레드가 ConnectNamedPipe를 호출할 때까지 대기 (블로킹 상태 확인)
+  printf("[C++] 두 ConnectNamedPipe 호출 완료 대기...\n");
+  fflush(stdout);
+  while (!audio_waiting.load(std::memory_order_acquire) || !video_waiting.load(std::memory_order_acquire)) {
+    Sleep(1);
+  }
+  printf("[C++] ✅ 두 ConnectNamedPipe 모두 호출 완료 (블로킹 상태)\n");
+  fflush(stdout);
+  
+  // 안정화 대기
+  Sleep(200);
 
   // Step 3: FFmpeg 프로세스 시작 (두 파이프 모두 ConnectNamedPipe 대기 중)
   printf("[C++] Step 3: FFmpeg 프로세스 시작 (파이프 연결 대기 중)...\n");
