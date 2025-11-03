@@ -872,6 +872,7 @@ static void CaptureThreadFunc(
     pipeline_config.audio_sample_rate = g_wave_format->nSamplesPerSec;
     pipeline_config.audio_channels = g_wave_format->nChannels;
     pipeline_config.enable_fragmented_mp4 = true;
+    pipeline_config.video_only = true;  // Hybrid 방식: Video만 Named Pipe로 인코딩
 
     try {
         g_ffmpeg_pipeline = std::make_unique<FFmpegPipeline>();

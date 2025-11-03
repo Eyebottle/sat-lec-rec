@@ -18,11 +18,12 @@ struct FFmpegLaunchConfig {
   int video_width = 1920;     // 비디오 가로 해상도
   int video_height = 1080;    // 비디오 세로 해상도
   int video_fps = 24;         // 비디오 프레임레이트
-  int audio_sample_rate = 48000;  // 오디오 샘플레이트
-  int audio_channels = 2;         // 오디오 채널 수
+  int audio_sample_rate = 48000;  // 오디오 샘플레이트 (video_only일 때는 미사용)
+  int audio_channels = 2;         // 오디오 채널 수 (video_only일 때는 미사용)
   bool enable_fragmented_mp4 = true;  // movflags 설정 여부
   bool enable_segment = false;        // 세그먼트 저장 여부
   int segment_seconds = 2700;         // 세그먼트 길이 (초)
+  bool video_only = true;             // true: Video만 인코딩, false: Audio+Video
 };
 
 // 입력: FFmpegLaunchConfig, WriteVideo/WriteAudio의 바이트 배열

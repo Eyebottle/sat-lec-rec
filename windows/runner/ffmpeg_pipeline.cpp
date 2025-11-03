@@ -161,28 +161,40 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   printf("[C++] ✅ [Video] ConnectNamedPipe 호출 완료 (블로킹 대기 중)\n");
   fflush(stdout);
 
-  // Audio 스레드를 나중에 시작
-  printf("[C++] [Audio] ConnectNamedPipe 스레드 실행 시작...\n");
-  fflush(stdout);
-  std::thread audio_thread(audio_worker);
+  // video_only가 아닐 때만 Audio 스레드 시작
+  std::thread audio_thread;
+  if (!config_.video_only) {
+    printf("[C++] [Audio] ConnectNamedPipe 스레드 실행 시작...\n");
+    fflush(stdout);
+    audio_thread = std::thread(audio_worker);
 
-  while (!audio_waiting.load(std::memory_order_acquire)) {
-    Sleep(1);
+    while (!audio_waiting.load(std::memory_order_acquire)) {
+      Sleep(1);
+    }
+    printf("[C++] ✅ [Audio] ConnectNamedPipe 호출 완료 (블로킹 대기 중)\n");
+    fflush(stdout);
+  } else {
+    printf("[C++] ℹ️  Video-only 모드: Audio 스레드 생성 스킵\n");
+    fflush(stdout);
   }
-  printf("[C++] ✅ [Audio] ConnectNamedPipe 호출 완료 (블로킹 대기 중)\n");
-  fflush(stdout);
 
   // 안정화 대기
   Sleep(200);
 
-  // Step 3: FFmpeg 프로세스 시작 (두 파이프 모두 ConnectNamedPipe 대기 중)
-  printf("[C++] Step 3: FFmpeg 프로세스 시작 (파이프 연결 대기 중)...\n");
+  // Step 3: FFmpeg 프로세스 시작
+  if (config_.video_only) {
+    printf("[C++] Step 3: FFmpeg 프로세스 시작 (Video-only 모드)...\n");
+  } else {
+    printf("[C++] Step 3: FFmpeg 프로세스 시작 (파이프 연결 대기 중)...\n");
+  }
   fflush(stdout);
 
   if (!LaunchProcess()) {
     printf("[C++] ❌ FFmpeg 프로세스 실행 실패: %s\n", last_error_.c_str());
     fflush(stdout);
-    DisconnectNamedPipe(audio_pipe_);
+    if (!config_.video_only && audio_pipe_ != INVALID_HANDLE_VALUE) {
+      DisconnectNamedPipe(audio_pipe_);
+    }
     DisconnectNamedPipe(video_pipe_);
     if (audio_thread.joinable()) audio_thread.join();
     if (video_thread.joinable()) video_thread.join();
@@ -206,43 +218,49 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     return false;
   }
 
-  // Step 5: 두 파이프 모두 연결 완료 대기
-  printf("[C++] Step 5: 두 파이프 연결 완료 대기 (타임아웃 10초)...\n");
+  // Step 5: 파이프 연결 완료 대기
+  if (config_.video_only) {
+    printf("[C++] Step 5: Video 파이프 연결 완료 대기 (타임아웃 10초)...\n");
+  } else {
+    printf("[C++] Step 5: 두 파이프 모두 연결 완료 대기 (타임아웃 10초)...\n");
+  }
   fflush(stdout);
 
-  // Audio 연결 완료 대기
-  auto audio_start = std::chrono::steady_clock::now();
-  while (!audio_connected.load(std::memory_order_acquire) && 
-         !audio_failed.load(std::memory_order_acquire)) {
-    auto elapsed = std::chrono::steady_clock::now() - audio_start;
-    if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= 10) {
-      printf("[C++] ❌ [Audio] 파이프 연결 타임아웃 (10초)\n");
-      fflush(stdout);
-      DisconnectNamedPipe(audio_pipe_);
-      DisconnectNamedPipe(video_pipe_);
-      if (audio_thread.joinable()) audio_thread.join();
-      if (video_thread.joinable()) video_thread.join();
-      CloseHandles();
-      SetLastError("오디오 파이프 연결 타임아웃");
-      return false;
+  // video_only가 아닐 때만 Audio 연결 대기
+  if (!config_.video_only) {
+    auto audio_start = std::chrono::steady_clock::now();
+    while (!audio_connected.load(std::memory_order_acquire) &&
+           !audio_failed.load(std::memory_order_acquire)) {
+      auto elapsed = std::chrono::steady_clock::now() - audio_start;
+      if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= 10) {
+        printf("[C++] ❌ [Audio] 파이프 연결 타임아웃 (10초)\n");
+        fflush(stdout);
+        DisconnectNamedPipe(audio_pipe_);
+        DisconnectNamedPipe(video_pipe_);
+        if (audio_thread.joinable()) audio_thread.join();
+        if (video_thread.joinable()) video_thread.join();
+        CloseHandles();
+        SetLastError("오디오 파이프 연결 타임아웃");
+        return false;
+      }
+
+      // FFmpeg 프로세스 상태 확인
+      DWORD exit_code = 0;
+      if (GetExitCodeProcess(process_info_.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
+        printf("[C++] ❌ FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", exit_code);
+        printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
+        fflush(stdout);
+        DisconnectNamedPipe(audio_pipe_);
+        DisconnectNamedPipe(video_pipe_);
+        if (audio_thread.joinable()) audio_thread.join();
+        if (video_thread.joinable()) video_thread.join();
+        CloseHandles();
+        SetLastError("FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(exit_code));
+        return false;
+      }
+
+      Sleep(10);
     }
-    
-    // FFmpeg 프로세스 상태 확인
-    DWORD exit_code = 0;
-    if (GetExitCodeProcess(process_info_.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
-      printf("[C++] ❌ FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", exit_code);
-      printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
-      fflush(stdout);
-      DisconnectNamedPipe(audio_pipe_);
-      DisconnectNamedPipe(video_pipe_);
-      if (audio_thread.joinable()) audio_thread.join();
-      if (video_thread.joinable()) video_thread.join();
-      CloseHandles();
-      SetLastError("FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(exit_code));
-      return false;
-    }
-    
-    Sleep(10);
   }
 
   // Video 연결 완료 대기
@@ -284,7 +302,7 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   if (video_thread.joinable()) video_thread.join();
 
   // 연결 결과 확인
-  if (audio_failed.load(std::memory_order_acquire)) {
+  if (!config_.video_only && audio_failed.load(std::memory_order_acquire)) {
     printf("[C++] ❌ [Audio] 파이프 연결 실패: err=%lu\n", audio_error);
     fflush(stdout);
     SetLastError("오디오 파이프 연결 실패. 코드: " + std::to_string(audio_error));
@@ -302,15 +320,24 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     return false;
   }
 
-  printf("[C++] ✅ 두 파이프 모두 연결 완료\n");
+  if (config_.video_only) {
+    printf("[C++] ✅ Video 파이프 연결 완료\n");
+  } else {
+    printf("[C++] ✅ 두 파이프 모두 연결 완료\n");
+  }
   fflush(stdout);
   printf("[C++] =================================\n");
   fflush(stdout);
 
   is_running_ = true;
-  printf("[C++] ✅ FFmpeg 파이프라인 시작 (video pipe: %s, audio pipe: %s)\n",
-         WideToUtf8(video_pipe_name_).c_str(),
-         WideToUtf8(audio_pipe_name_).c_str());
+  if (config_.video_only) {
+    printf("[C++] ✅ FFmpeg 파이프라인 시작 (Video-only mode, video pipe: %s)\n",
+           WideToUtf8(video_pipe_name_).c_str());
+  } else {
+    printf("[C++] ✅ FFmpeg 파이프라인 시작 (video pipe: %s, audio pipe: %s)\n",
+           WideToUtf8(video_pipe_name_).c_str(),
+           WideToUtf8(audio_pipe_name_).c_str());
+  }
   fflush(stdout);
   return true;
 }
@@ -388,15 +415,11 @@ bool FFmpegPipeline::CreateNamedPipes() {
   video_oss << L"\\\\.\\pipe\\sat_lec_rec_" << pid << L"_" << tick << L"_video";
   video_pipe_name_ = video_oss.str();
 
-  std::wostringstream audio_oss;
-  audio_oss << L"\\\\.\\pipe\\sat_lec_rec_" << pid << L"_" << tick << L"_audio";
-  audio_pipe_name_ = audio_oss.str();
-
   video_pipe_ = CreateNamedPipeW(
       video_pipe_name_.c_str(),
       PIPE_ACCESS_OUTBOUND,  // 동기 모드
       PIPE_TYPE_BYTE | PIPE_WAIT,
-      1,  // nMaxInstances = 1 (순차 연결 방식)
+      1,  // nMaxInstances = 1
       kPipeBufferSizeVideo,
       kPipeBufferSizeVideo,
       0,
@@ -412,34 +435,41 @@ bool FFmpegPipeline::CreateNamedPipes() {
   printf("[C++] ✅ 비디오 파이프 생성 성공: %s\n", WideToUtf8(video_pipe_name_).c_str());
   fflush(stdout);
 
-  audio_pipe_ = CreateNamedPipeW(
-      audio_pipe_name_.c_str(),
-      PIPE_ACCESS_OUTBOUND,  // 동기 모드
-      PIPE_TYPE_BYTE | PIPE_WAIT,
-      1,  // nMaxInstances = 1 (순차 연결 방식)
-      kPipeBufferSizeAudio,
-      kPipeBufferSizeAudio,
-      0,
-      nullptr);
+  // video_only 모드에서는 Audio 파이프 생성 스킵
+  if (!config_.video_only) {
+    std::wostringstream audio_oss;
+    audio_oss << L"\\\\.\\pipe\\sat_lec_rec_" << pid << L"_" << tick << L"_audio";
+    audio_pipe_name_ = audio_oss.str();
 
-  if (audio_pipe_ == INVALID_HANDLE_VALUE) {
-    DWORD err = GetLastError();
-    printf("[C++] ❌ 오디오 파이프 생성 실패: %s (err=%lu)\n", WideToUtf8(audio_pipe_name_).c_str(), err);
-    fflush(stdout);
-    SetLastError("오디오 파이프 생성에 실패했습니다. 코드: " + std::to_string(err));
-    if (video_pipe_ != INVALID_HANDLE_VALUE) {
-      CloseHandle(video_pipe_);
-      video_pipe_ = INVALID_HANDLE_VALUE;
+    audio_pipe_ = CreateNamedPipeW(
+        audio_pipe_name_.c_str(),
+        PIPE_ACCESS_OUTBOUND,  // 동기 모드
+        PIPE_TYPE_BYTE | PIPE_WAIT,
+        1,  // nMaxInstances = 1
+        kPipeBufferSizeAudio,
+        kPipeBufferSizeAudio,
+        0,
+        nullptr);
+
+    if (audio_pipe_ == INVALID_HANDLE_VALUE) {
+      DWORD err = GetLastError();
+      printf("[C++] ❌ 오디오 파이프 생성 실패: %s (err=%lu)\n", WideToUtf8(audio_pipe_name_).c_str(), err);
+      fflush(stdout);
+      SetLastError("오디오 파이프 생성에 실패했습니다. 코드: " + std::to_string(err));
+      if (video_pipe_ != INVALID_HANDLE_VALUE) {
+        CloseHandle(video_pipe_);
+        video_pipe_ = INVALID_HANDLE_VALUE;
+      }
+      return false;
     }
-    return false;
+    printf("[C++] ✅ 오디오 파이프 생성 성공: %s\n", WideToUtf8(audio_pipe_name_).c_str());
+    fflush(stdout);
+    printf("[C++] ✅ Video+Audio 파이프 생성 완료\n");
+  } else {
+    printf("[C++] ℹ️  Video-only 모드: Audio 파이프 생성 스킵\n");
   }
-  printf("[C++] ✅ 오디오 파이프 생성 성공: %s\n", WideToUtf8(audio_pipe_name_).c_str());
-  fflush(stdout);
 
-  // CreateNamedPipeW 성공 = 파이프 유효함
-  // GetNamedPipeInfo는 OVERLAPPED 파이프에서 ERROR_ACCESS_DENIED를 반환할 수 있으므로
-  // 불필요한 검증을 제거하고 바로 ConnectNamedPipe 단계로 진행
-  printf("[C++] ✅ 두 파이프 모두 생성 완료, ConnectNamedPipe 대기 시작\n");
+  fflush(stdout);
   fflush(stdout);
 
   return true;
@@ -539,22 +569,30 @@ std::wstring FFmpegPipeline::BuildCommandLine(const std::wstring& ffmpeg_path) c
   oss << L"\"" << ffmpeg_path << L"\"";
   oss << L" -hide_banner -loglevel verbose -report -y";
 
-  // Video 입력을 먼저 지정 (FFmpeg가 비디오 파이프를 먼저 열도록)
+  // Video 입력
   oss << L" -thread_queue_size 1024";
   oss << L" -f rawvideo -pix_fmt bgra";
   oss << L" -s " << config_.video_width << L"x" << config_.video_height;
   oss << L" -r " << config_.video_fps;
-  oss << L" -i " << video_pipe_name_;  // 따옴표 제거
+  oss << L" -i " << video_pipe_name_;
 
-  // Audio 입력 나중에
-  oss << L" -thread_queue_size 1024";
-  oss << L" -f f32le -ar " << config_.audio_sample_rate;
-  oss << L" -ac " << config_.audio_channels;
-  oss << L" -i " << audio_pipe_name_;  // 따옴표 제거
+  // video_only 모드가 아닐 때만 Audio 입력 추가
+  if (!config_.video_only) {
+    oss << L" -thread_queue_size 1024";
+    oss << L" -f f32le -ar " << config_.audio_sample_rate;
+    oss << L" -ac " << config_.audio_channels;
+    oss << L" -i " << audio_pipe_name_;
+  }
 
   oss << L" -vf vflip";
   oss << L" -c:v libx264 -preset veryfast -crf 23";
-  oss << L" -c:a aac -b:a 192k";
+
+  // video_only 모드일 때는 -an (no audio), 아니면 AAC 인코딩
+  if (config_.video_only) {
+    oss << L" -an";
+  } else {
+    oss << L" -c:a aac -b:a 192k";
+  }
 
   if (config_.enable_fragmented_mp4) {
     oss << L" -movflags +frag_keyframe+empty_moov+separate_moof+omit_tfhd_offset";
