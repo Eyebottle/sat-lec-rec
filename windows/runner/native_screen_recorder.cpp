@@ -564,7 +564,14 @@ static void EncoderThreadFunc() {
     printf("[C++] FFmpeg 파이프 인코더 스레드 시작...\n");
     fflush(stdout);
 
+    printf("[C++] EncoderThreadFunc: ResetRecordingStats 호출 중...\n");
+    fflush(stdout);
     ResetRecordingStats();
+    printf("[C++] EncoderThreadFunc: ResetRecordingStats 완료\n");
+    fflush(stdout);
+
+    printf("[C++] EncoderThreadFunc: while 루프 진입 준비...\n");
+    fflush(stdout);
 
     // Video-only 모드일 때는 audio_queue 체크 스킵
     auto should_continue = [&]() {
@@ -574,6 +581,9 @@ static void EncoderThreadFunc() {
             return g_is_recording || !g_frame_queue.empty() || !g_audio_queue.empty();
         }
     };
+
+    printf("[C++] EncoderThreadFunc: while 루프 시작 (g_is_recording=%d)\n", g_is_recording.load());
+    fflush(stdout);
 
     while (should_continue()) {
         bool processed = false;
@@ -748,6 +758,13 @@ static void AudioCaptureThreadFunc() {
 
 // 프레임 캡처 (DXGI Desktop Duplication)
 static bool CaptureFrame() {
+    static bool first_call = true;
+    if (first_call) {
+        printf("[C++] CaptureFrame: 첫 호출\n");
+        fflush(stdout);
+        first_call = false;
+    }
+
     HRESULT hr;
     DXGI_OUTDUPL_FRAME_INFO frame_info;
     IDXGIResource* desktop_resource = nullptr;
