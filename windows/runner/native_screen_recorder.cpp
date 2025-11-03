@@ -35,6 +35,7 @@
 
 // 전역 상태
 static std::atomic<bool> g_is_recording(false);
+static bool g_video_only = true;  // Hybrid 방식: Video만 Named Pipe로 인코딩
 static std::string g_last_error;
 static std::mutex g_error_mutex;
 static std::thread g_capture_thread;
@@ -565,17 +566,31 @@ static void EncoderThreadFunc() {
 
     ResetRecordingStats();
 
-    while (g_is_recording || !g_frame_queue.empty() || !g_audio_queue.empty()) {
+    // Video-only 모드일 때는 audio_queue 체크 스킵
+    auto should_continue = [&]() {
+        if (g_video_only) {
+            return g_is_recording || !g_frame_queue.empty();
+        } else {
+            return g_is_recording || !g_frame_queue.empty() || !g_audio_queue.empty();
+        }
+    };
+
+    while (should_continue()) {
         bool processed = false;
         processed |= ProcessNextVideoFrame();
-        processed |= ProcessNextAudioSample();
+
+        // Video-only 모드가 아닐 때만 Audio 처리
+        if (!g_video_only) {
+            processed |= ProcessNextAudioSample();
+        }
 
         if (!processed) {
             Sleep(2);
         }
     }
 
-    while (ProcessNextVideoFrame() || ProcessNextAudioSample()) {
+    // 잔여 데이터 비우기
+    while (ProcessNextVideoFrame() || (!g_video_only && ProcessNextAudioSample())) {
         // 잔여 데이터 비우기
     }
 
@@ -831,27 +846,43 @@ static void CaptureThreadFunc(
     printf("[C++] ✅ DXGI Desktop Duplication 초기화 완료\n");
     fflush(stdout);
 
-    // WASAPI Loopback 초기화
-    if (!InitializeWASAPI()) {
-        printf("[C++] ❌ WASAPI 초기화 실패\n");
+    // Video-only 모드가 아닐 때만 WASAPI 초기화
+    if (!g_video_only) {
+        if (!InitializeWASAPI()) {
+            printf("[C++] ❌ WASAPI 초기화 실패\n");
+            fflush(stdout);
+            SetLastError("WASAPI 초기화 실패");
+            CleanupDXGIDuplication();
+            g_is_recording = false;
+            return;
+        }
+        printf("[C++] ✅ WASAPI 초기화 완료\n");
         fflush(stdout);
-        SetLastError("WASAPI 초기화 실패");
-        CleanupDXGIDuplication();
-        g_is_recording = false;
-        return;
+    } else {
+        printf("[C++] ℹ️  Video-only 모드: WASAPI 초기화 스킵\n");
+        fflush(stdout);
     }
 
-    // 오디오 캡처 스레드 시작
-    g_audio_thread = std::thread(AudioCaptureThreadFunc);
+    // Video-only 모드가 아닐 때만 오디오 캡처 스레드 시작
+    if (!g_video_only) {
+        g_audio_thread = std::thread(AudioCaptureThreadFunc);
+        printf("[C++] ✅ 오디오 캡처 스레드 시작됨\n");
+        fflush(stdout);
+    } else {
+        printf("[C++] ℹ️  Video-only 모드: 오디오 캡처 스레드 시작 스킵\n");
+        fflush(stdout);
+    }
 
     // 출력 파일 경로를 wchar_t로 변환 (UTF-8 → UTF-16)
     int wide_length = MultiByteToWideChar(CP_UTF8, 0, output_path.c_str(), -1, nullptr, 0);
     if (wide_length <= 1) {
         printf("[C++] ❌ 출력 경로 UTF-16 변환 실패\n");
         fflush(stdout);
-        CleanupWASAPI();
+        if (!g_video_only) {
+            CleanupWASAPI();
+            if (g_audio_thread.joinable()) g_audio_thread.join();
+        }
         CleanupDXGIDuplication();
-        if (g_audio_thread.joinable()) g_audio_thread.join();
         g_is_recording = false;
         return;
     }
@@ -869,8 +900,17 @@ static void CaptureThreadFunc(
     pipeline_config.video_width = width;
     pipeline_config.video_height = height;
     pipeline_config.video_fps = fps;
-    pipeline_config.audio_sample_rate = g_wave_format->nSamplesPerSec;
-    pipeline_config.audio_channels = g_wave_format->nChannels;
+
+    // Video-only 모드가 아닐 때만 audio 설정 (g_wave_format 사용)
+    if (!g_video_only && g_wave_format) {
+        pipeline_config.audio_sample_rate = g_wave_format->nSamplesPerSec;
+        pipeline_config.audio_channels = g_wave_format->nChannels;
+    } else {
+        // Video-only 모드일 때는 기본값 사용 (실제로는 사용되지 않음)
+        pipeline_config.audio_sample_rate = 48000;
+        pipeline_config.audio_channels = 2;
+    }
+
     pipeline_config.enable_fragmented_mp4 = true;
     pipeline_config.video_only = true;  // Hybrid 방식: Video만 Named Pipe로 인코딩
 
@@ -880,9 +920,11 @@ static void CaptureThreadFunc(
             printf("[C++] ❌ FFmpeg 파이프라인 시작 실패: %s\n", g_ffmpeg_pipeline->last_error().c_str());
             fflush(stdout);
             g_ffmpeg_pipeline.reset();
-            CleanupWASAPI();
+            if (!g_video_only) {
+                CleanupWASAPI();
+                if (g_audio_thread.joinable()) g_audio_thread.join();
+            }
             CleanupDXGIDuplication();
-            if (g_audio_thread.joinable()) g_audio_thread.join();
             g_is_recording = false;
             return;
         }
@@ -891,9 +933,11 @@ static void CaptureThreadFunc(
         fflush(stdout);
         SetLastError(std::string("FFmpeg 파이프라인 시작 예외: ") + e.what());
         g_ffmpeg_pipeline.reset();
-        CleanupWASAPI();
+        if (!g_video_only) {
+            CleanupWASAPI();
+            if (g_audio_thread.joinable()) g_audio_thread.join();
+        }
         CleanupDXGIDuplication();
-        if (g_audio_thread.joinable()) g_audio_thread.join();
         g_is_recording = false;
         return;
     } catch (...) {
@@ -901,9 +945,11 @@ static void CaptureThreadFunc(
         fflush(stdout);
         SetLastError("FFmpeg 파이프라인 시작 중 알 수 없는 예외 발생");
         g_ffmpeg_pipeline.reset();
-        CleanupWASAPI();
+        if (!g_video_only) {
+            CleanupWASAPI();
+            if (g_audio_thread.joinable()) g_audio_thread.join();
+        }
         CleanupDXGIDuplication();
-        if (g_audio_thread.joinable()) g_audio_thread.join();
         g_is_recording = false;
         return;
     }
@@ -949,8 +995,8 @@ static void CaptureThreadFunc(
         g_encoder_thread.join();
     }
 
-    // 오디오 스레드 종료 대기
-    if (g_audio_thread.joinable()) {
+    // Video-only 모드가 아닐 때만 오디오 스레드 종료 대기
+    if (!g_video_only && g_audio_thread.joinable()) {
         printf("[C++] 오디오 스레드 종료 대기...\n");
         fflush(stdout);
         g_audio_thread.join();
@@ -961,7 +1007,12 @@ static void CaptureThreadFunc(
         g_ffmpeg_pipeline->Stop();
         g_ffmpeg_pipeline.reset();
     }
-    CleanupWASAPI();
+
+    // Video-only 모드가 아닐 때만 WASAPI 정리
+    if (!g_video_only) {
+        CleanupWASAPI();
+    }
+
     CleanupDXGIDuplication();
     printf("[C++] 모든 리소스 정리 완료\n");
     fflush(stdout);
@@ -1068,8 +1119,8 @@ void NativeRecorder_Cleanup() {
         NativeRecorder_StopRecording();
     }
 
-    // 오디오 스레드 종료 대기
-    if (g_audio_thread.joinable()) {
+    // Video-only 모드가 아닐 때만 오디오 스레드 종료 대기
+    if (!g_video_only && g_audio_thread.joinable()) {
         g_audio_thread.join();
     }
 
@@ -1078,8 +1129,10 @@ void NativeRecorder_Cleanup() {
         g_ffmpeg_pipeline.reset();
     }
 
-    // WASAPI 리소스 정리
-    CleanupWASAPI();
+    // Video-only 모드가 아닐 때만 WASAPI 리소스 정리
+    if (!g_video_only) {
+        CleanupWASAPI();
+    }
 
     // DXGI Duplication 리소스 정리
     CleanupDXGIDuplication();
