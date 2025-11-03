@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <sstream>
 #include <thread>
@@ -52,8 +53,6 @@ std::string WideToUtf8(const std::wstring& src) {
 // 예외: 없음
 FFmpegPipeline::FFmpegPipeline() {
   ZeroMemory(&process_info_, sizeof(process_info_));
-  ZeroMemory(&audio_overlapped_, sizeof(audio_overlapped_));
-  ZeroMemory(&video_overlapped_, sizeof(video_overlapped_));
 }
 
 // 입력: 없음
@@ -86,114 +85,71 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
   fflush(stdout);
 
   // ============================================
-  // OVERLAPPED I/O 방식: FFmpeg 시작 전 파이프 완전 준비
+  // 검증된 패턴: 별도 스레드에서 동기 ConnectNamedPipe 사용
   // ============================================
   printf("[C++] =================================\n");
-  printf("[C++] OVERLAPPED I/O 파이프 연결 시작\n");
+  printf("[C++] 스레드 기반 파이프 연결 시작 (검증된 패턴)\n");
   printf("[C++] =================================\n");
   fflush(stdout);
 
-  // Step 1: 이벤트 핸들 생성 및 OVERLAPPED 구조체 초기화
-  printf("[C++] Step 1: 이벤트 핸들 생성 및 OVERLAPPED 초기화...\n");
-  fflush(stdout);
+  // 연결 상태 변수
+  std::atomic<bool> audio_connected{false};
+  std::atomic<bool> video_connected{false};
+  std::atomic<bool> audio_failed{false};
+  std::atomic<bool> video_failed{false};
+  DWORD audio_error = ERROR_SUCCESS;
+  DWORD video_error = ERROR_SUCCESS;
 
-  audio_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (audio_event_ == nullptr) {
+  // Audio 연결 스레드 (동기 ConnectNamedPipe - 블로킹)
+  std::thread audio_thread([&]() {
+    printf("[C++] [Audio] ConnectNamedPipe 스레드 시작 (블로킹 대기)...\n");
+    fflush(stdout);
+    BOOL connected = ConnectNamedPipe(audio_pipe_, nullptr);  // 동기 모드
     DWORD err = GetLastError();
-    printf("[C++] ❌ 오디오 이벤트 핸들 생성 실패: err=%lu\n", err);
+    if (connected || err == ERROR_PIPE_CONNECTED) {
+      audio_connected.store(true, std::memory_order_release);
+      audio_error = ERROR_SUCCESS;
+      printf("[C++] ✅ [Audio] 파이프 연결 성공\n");
+    } else {
+      audio_failed.store(true, std::memory_order_release);
+      audio_error = err;
+      printf("[C++] ❌ [Audio] 파이프 연결 실패: err=%lu\n", err);
+    }
     fflush(stdout);
-    SetLastError("오디오 이벤트 핸들 생성 실패. 코드: " + std::to_string(err));
-    CloseHandles();
-    return false;
-  }
+  });
 
-  video_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (video_event_ == nullptr) {
+  // Video 연결 스레드 (동기 ConnectNamedPipe - 블로킹)
+  std::thread video_thread([&]() {
+    printf("[C++] [Video] ConnectNamedPipe 스레드 시작 (블로킹 대기)...\n");
+    fflush(stdout);
+    BOOL connected = ConnectNamedPipe(video_pipe_, nullptr);  // 동기 모드
     DWORD err = GetLastError();
-    printf("[C++] ❌ 비디오 이벤트 핸들 생성 실패: err=%lu\n", err);
+    if (connected || err == ERROR_PIPE_CONNECTED) {
+      video_connected.store(true, std::memory_order_release);
+      video_error = ERROR_SUCCESS;
+      printf("[C++] ✅ [Video] 파이프 연결 성공\n");
+    } else {
+      video_failed.store(true, std::memory_order_release);
+      video_error = err;
+      printf("[C++] ❌ [Video] 파이프 연결 실패: err=%lu\n", err);
+    }
     fflush(stdout);
-    SetLastError("비디오 이벤트 핸들 생성 실패. 코드: " + std::to_string(err));
-    CloseHandle(audio_event_);
-    audio_event_ = nullptr;
-    CloseHandles();
-    return false;
-  }
+  });
 
-  audio_overlapped_.hEvent = audio_event_;
-  video_overlapped_.hEvent = video_event_;
+  // 두 스레드가 ConnectNamedPipe를 호출할 때까지 짧은 대기
+  Sleep(100);
 
-  printf("[C++] ✅ 이벤트 핸들 생성 완료\n");
-  fflush(stdout);
-
-  // Step 2: ConnectNamedPipe를 OVERLAPPED로 호출 (두 파이프 모두)
-  printf("[C++] Step 2: ConnectNamedPipe 비동기 호출 시작...\n");
-  fflush(stdout);
-
-  // Audio 파이프 연결 시작
-  BOOL audio_connected = ConnectNamedPipe(audio_pipe_, &audio_overlapped_);
-  DWORD audio_err = GetLastError();
-
-  if (!audio_connected && audio_err != ERROR_IO_PENDING && audio_err != ERROR_PIPE_CONNECTED) {
-    printf("[C++] ❌ [Audio] ConnectNamedPipe 실패: err=%lu\n", audio_err);
-    fflush(stdout);
-    SetLastError("오디오 파이프 ConnectNamedPipe 실패. 코드: " + std::to_string(audio_err));
-    CloseHandle(audio_event_);
-    audio_event_ = nullptr;
-    CloseHandle(video_event_);
-    video_event_ = nullptr;
-    CloseHandles();
-    return false;
-  }
-
-  if (audio_err == ERROR_PIPE_CONNECTED) {
-    printf("[C++] ✅ [Audio] 파이프가 이미 연결됨\n");
-    fflush(stdout);
-    SetEvent(audio_event_);
-  } else {
-    printf("[C++] [Audio] ConnectNamedPipe 비동기 대기 중 (ERROR_IO_PENDING)\n");
-    fflush(stdout);
-  }
-
-  // Video 파이프 연결 시작
-  BOOL video_connected = ConnectNamedPipe(video_pipe_, &video_overlapped_);
-  DWORD video_err = GetLastError();
-
-  if (!video_connected && video_err != ERROR_IO_PENDING && video_err != ERROR_PIPE_CONNECTED) {
-    printf("[C++] ❌ [Video] ConnectNamedPipe 실패: err=%lu\n", video_err);
-    fflush(stdout);
-    SetLastError("비디오 파이프 ConnectNamedPipe 실패. 코드: " + std::to_string(video_err));
-    CancelIoEx(audio_pipe_, &audio_overlapped_);
-    DisconnectNamedPipe(audio_pipe_);
-    CloseHandle(audio_event_);
-    audio_event_ = nullptr;
-    CloseHandle(video_event_);
-    video_event_ = nullptr;
-    CloseHandles();
-    return false;
-  }
-
-  if (video_err == ERROR_PIPE_CONNECTED) {
-    printf("[C++] ✅ [Video] 파이프가 이미 연결됨\n");
-    fflush(stdout);
-    SetEvent(video_event_);
-  } else {
-    printf("[C++] [Video] ConnectNamedPipe 비동기 대기 중 (ERROR_IO_PENDING)\n");
-    fflush(stdout);
-  }
-
-  // Step 3: FFmpeg 프로세스 시작 (ConnectNamedPipe는 이미 호출됨, FFmpeg가 파이프를 열면 연결됨)
+  // Step 3: FFmpeg 프로세스 시작 (두 파이프 모두 ConnectNamedPipe 대기 중)
   printf("[C++] Step 3: FFmpeg 프로세스 시작 (파이프 연결 대기 중)...\n");
   fflush(stdout);
 
   if (!LaunchProcess()) {
     printf("[C++] ❌ FFmpeg 프로세스 실행 실패: %s\n", last_error_.c_str());
     fflush(stdout);
-    CancelIoEx(audio_pipe_, &audio_overlapped_);
-    CancelIoEx(video_pipe_, &video_overlapped_);
-    CloseHandle(audio_event_);
-    audio_event_ = nullptr;
-    CloseHandle(video_event_);
-    video_event_ = nullptr;
+    DisconnectNamedPipe(audio_pipe_);
+    DisconnectNamedPipe(video_pipe_);
+    if (audio_thread.joinable()) audio_thread.join();
+    if (video_thread.joinable()) video_thread.join();
     CloseHandles();
     return false;
   }
@@ -206,211 +162,111 @@ bool FFmpegPipeline::Start(const FFmpegLaunchConfig& config) {
     printf("[C++] ❌ FFmpeg 프로세스 핸들이 유효하지 않음\n");
     fflush(stdout);
     SetLastError("FFmpeg 프로세스 핸들 유효성 검사 실패");
-    CancelIoEx(audio_pipe_, &audio_overlapped_);
-    CancelIoEx(video_pipe_, &video_overlapped_);
-    CloseHandle(audio_event_);
-    audio_event_ = nullptr;
-    CloseHandle(video_event_);
-    video_event_ = nullptr;
+    DisconnectNamedPipe(audio_pipe_);
+    DisconnectNamedPipe(video_pipe_);
+    if (audio_thread.joinable()) audio_thread.join();
+    if (video_thread.joinable()) video_thread.join();
     CloseHandles();
     return false;
   }
 
-  // 짧은 대기 후 프로세스 상태 확인
-  Sleep(100);
-  DWORD exit_code = 0;
-  if (GetExitCodeProcess(process_info_.hProcess, &exit_code)) {
-    if (exit_code != STILL_ACTIVE) {
-      printf("[C++] ❌ FFmpeg 프로세스가 즉시 종료됨 (exit_code=%lu)\n", exit_code);
-      fflush(stdout);
-      SetLastError("FFmpeg 프로세스가 즉시 종료됨. 코드: " + std::to_string(exit_code));
-      CancelIoEx(audio_pipe_, &audio_overlapped_);
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
-      CloseHandles();
-      return false;
-    }
-  }
-
-  printf("[C++] ✅ FFmpeg 프로세스 시작 성공\n");
+  // Step 5: 두 파이프 모두 연결 완료 대기
+  printf("[C++] Step 5: 두 파이프 연결 완료 대기 (타임아웃 10초)...\n");
   fflush(stdout);
 
-  // Step 5: 두 파이프 모두 FFmpeg에 의해 연결될 때까지 순차 대기
-  // FFmpeg가 Audio를 먼저 열고, 그 다음 Video를 열기 때문에 순차적으로 대기
-  printf("[C++] Step 5: FFmpeg 파이프 연결 완료 대기 (순차 대기)...\n");
-  fflush(stdout);
-
-  // Step 5-1: Audio 파이프 연결 완료 대기
-  printf("[C++] Step 5-1: Audio 파이프 연결 대기 (타임아웃 10초)...\n");
-  fflush(stdout);
-
-  if (audio_err == ERROR_IO_PENDING) {
-    // Audio 파이프 연결 대기 (FFmpeg가 Audio를 먼저 열기 때문)
-    DWORD audio_wait_result = WaitForSingleObject(audio_event_, 10000);  // 10초 타임아웃
-    
-    // FFmpeg 프로세스 상태 확인 (파이프 연결 실패로 종료되었을 수 있음)
-    DWORD audio_exit_code = 0;
-    if (GetExitCodeProcess(process_info_.hProcess, &audio_exit_code) && audio_exit_code != STILL_ACTIVE) {
-      printf("[C++] ❌ FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", audio_exit_code);
-      fflush(stdout);
-      SetLastError("FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(audio_exit_code));
-      CancelIoEx(audio_pipe_, &audio_overlapped_);
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
-      CloseHandles();
-      return false;
-    }
-    
-    if (audio_wait_result == WAIT_TIMEOUT) {
+  // Audio 연결 완료 대기
+  auto audio_start = std::chrono::steady_clock::now();
+  while (!audio_connected.load(std::memory_order_acquire) && 
+         !audio_failed.load(std::memory_order_acquire)) {
+    auto elapsed = std::chrono::steady_clock::now() - audio_start;
+    if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= 10) {
       printf("[C++] ❌ [Audio] 파이프 연결 타임아웃 (10초)\n");
       fflush(stdout);
+      DisconnectNamedPipe(audio_pipe_);
+      DisconnectNamedPipe(video_pipe_);
+      if (audio_thread.joinable()) audio_thread.join();
+      if (video_thread.joinable()) video_thread.join();
+      CloseHandles();
       SetLastError("오디오 파이프 연결 타임아웃");
-      CancelIoEx(audio_pipe_, &audio_overlapped_);
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
-      CloseHandles();
       return false;
     }
-
-    if (audio_wait_result != WAIT_OBJECT_0) {
-      DWORD err = GetLastError();
-      printf("[C++] ❌ [Audio] WaitForSingleObject 실패: wait_result=%lu, err=%lu\n", audio_wait_result, err);
+    
+    // FFmpeg 프로세스 상태 확인
+    DWORD exit_code = 0;
+    if (GetExitCodeProcess(process_info_.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
+      printf("[C++] ❌ FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", exit_code);
+      printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
       fflush(stdout);
-      SetLastError("오디오 파이프 연결 대기 실패. 코드: " + std::to_string(err));
-      CancelIoEx(audio_pipe_, &audio_overlapped_);
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
+      DisconnectNamedPipe(audio_pipe_);
+      DisconnectNamedPipe(video_pipe_);
+      if (audio_thread.joinable()) audio_thread.join();
+      if (video_thread.joinable()) video_thread.join();
       CloseHandles();
+      SetLastError("FFmpeg 프로세스가 Audio 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(exit_code));
       return false;
     }
-
-    DWORD audio_bytes_transferred = 0;
-    if (!GetOverlappedResult(audio_pipe_, &audio_overlapped_, &audio_bytes_transferred, FALSE)) {
-      DWORD err = GetLastError();
-      printf("[C++] ❌ [Audio] GetOverlappedResult 실패: err=%lu\n", err);
-      fflush(stdout);
-      SetLastError("오디오 파이프 연결 확인 실패. 코드: " + std::to_string(err));
-      CancelIoEx(audio_pipe_, &audio_overlapped_);
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
-      CloseHandles();
-      return false;
-    }
-    printf("[C++] ✅ [Audio] GetOverlappedResult 성공\n");
-    fflush(stdout);
-  } else {
-    printf("[C++] ✅ [Audio] 파이프가 이미 연결됨 (ERROR_PIPE_CONNECTED)\n");
-    fflush(stdout);
+    
+    Sleep(10);
   }
 
-  // Audio 연결 후 짧은 대기 (FFmpeg가 Video 파이프를 열 준비를 할 시간)
-  printf("[C++] Audio 연결 완료, FFmpeg가 Video 파이프를 열 준비 중... (500ms 대기)\n");
-  fflush(stdout);
-  Sleep(500);
-
-  // Step 5-2: Video 파이프 연결 완료 대기 (Audio 연결 후)
-  printf("[C++] Step 5-2: Video 파이프 연결 대기 (타임아웃 10초)...\n");
-  fflush(stdout);
-
-  if (video_err == ERROR_IO_PENDING) {
-    // Video 파이프 연결 대기 (FFmpeg가 Audio 다음에 Video를 열기 때문)
-    // 짧은 간격으로 폴링하여 빠르게 감지
-    DWORD video_wait_result = WAIT_TIMEOUT;
-    const DWORD poll_interval = 50;  // 50ms 간격으로 폴링
-    const DWORD max_wait_ms = 10000;  // 최대 10초
-    DWORD elapsed_ms = 0;
-    
-    while (elapsed_ms < max_wait_ms) {
-      video_wait_result = WaitForSingleObject(video_event_, poll_interval);
-      
-      if (video_wait_result == WAIT_OBJECT_0) {
-        break;  // 연결 완료
-      }
-      
-      // FFmpeg 프로세스 상태 확인 (Video 파이프 연결 실패로 종료되었을 수 있음)
-      DWORD video_exit_code = 0;
-      if (GetExitCodeProcess(process_info_.hProcess, &video_exit_code) && video_exit_code != STILL_ACTIVE) {
-        printf("[C++] ❌ FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", video_exit_code);
-        printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
-        fflush(stdout);
-        SetLastError("FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(video_exit_code));
-        CancelIoEx(video_pipe_, &video_overlapped_);
-        CloseHandle(audio_event_);
-        audio_event_ = nullptr;
-        CloseHandle(video_event_);
-        video_event_ = nullptr;
-        CloseHandles();
-        return false;
-      }
-      
-      elapsed_ms += poll_interval;
-    }
-    
-    if (video_wait_result == WAIT_TIMEOUT) {
+  // Video 연결 완료 대기
+  auto video_start = std::chrono::steady_clock::now();
+  while (!video_connected.load(std::memory_order_acquire) && 
+         !video_failed.load(std::memory_order_acquire)) {
+    auto elapsed = std::chrono::steady_clock::now() - video_start;
+    if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= 10) {
       printf("[C++] ❌ [Video] 파이프 연결 타임아웃 (10초)\n");
       printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
       fflush(stdout);
+      DisconnectNamedPipe(video_pipe_);
+      if (audio_thread.joinable()) audio_thread.join();
+      if (video_thread.joinable()) video_thread.join();
+      CloseHandles();
       SetLastError("비디오 파이프 연결 타임아웃");
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
-      CloseHandles();
       return false;
     }
-
-    if (video_wait_result != WAIT_OBJECT_0) {
-      DWORD err = GetLastError();
-      printf("[C++] ❌ [Video] WaitForSingleObject 실패: wait_result=%lu, err=%lu\n", video_wait_result, err);
+    
+    // FFmpeg 프로세스 상태 확인
+    DWORD exit_code = 0;
+    if (GetExitCodeProcess(process_info_.hProcess, &exit_code) && exit_code != STILL_ACTIVE) {
+      printf("[C++] ❌ FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨 (exit_code=%lu)\n", exit_code);
+      printf("[C++] 💡 FFmpeg 로그 파일을 확인하세요: C:\\ws-workspace\\sat-lec-rec\\ffmpeg-*.log\n");
       fflush(stdout);
-      SetLastError("비디오 파이프 연결 대기 실패. 코드: " + std::to_string(err));
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
+      DisconnectNamedPipe(video_pipe_);
+      if (audio_thread.joinable()) audio_thread.join();
+      if (video_thread.joinable()) video_thread.join();
       CloseHandles();
+      SetLastError("FFmpeg 프로세스가 Video 파이프 연결 대기 중 종료됨. 코드: " + std::to_string(exit_code));
       return false;
     }
-
-    DWORD video_bytes_transferred = 0;
-    if (!GetOverlappedResult(video_pipe_, &video_overlapped_, &video_bytes_transferred, FALSE)) {
-      DWORD err = GetLastError();
-      printf("[C++] ❌ [Video] GetOverlappedResult 실패: err=%lu\n", err);
-      fflush(stdout);
-      SetLastError("비디오 파이프 연결 확인 실패. 코드: " + std::to_string(err));
-      CancelIoEx(video_pipe_, &video_overlapped_);
-      CloseHandle(audio_event_);
-      audio_event_ = nullptr;
-      CloseHandle(video_event_);
-      video_event_ = nullptr;
-      CloseHandles();
-      return false;
-    }
-    printf("[C++] ✅ [Video] GetOverlappedResult 성공\n");
-    fflush(stdout);
-  } else {
-    printf("[C++] ✅ [Video] 파이프가 이미 연결됨 (ERROR_PIPE_CONNECTED)\n");
-    fflush(stdout);
+    
+    Sleep(10);
   }
 
-  printf("[C++] ✅ 두 파이프 모두 연결 준비 완료\n");
+  // 스레드 종료 대기
+  if (audio_thread.joinable()) audio_thread.join();
+  if (video_thread.joinable()) video_thread.join();
+
+  // 연결 결과 확인
+  if (audio_failed.load(std::memory_order_acquire)) {
+    printf("[C++] ❌ [Audio] 파이프 연결 실패: err=%lu\n", audio_error);
+    fflush(stdout);
+    SetLastError("오디오 파이프 연결 실패. 코드: " + std::to_string(audio_error));
+    DisconnectNamedPipe(video_pipe_);
+    CloseHandles();
+    return false;
+  }
+
+  if (video_failed.load(std::memory_order_acquire)) {
+    printf("[C++] ❌ [Video] 파이프 연결 실패: err=%lu\n", video_error);
+    fflush(stdout);
+    SetLastError("비디오 파이프 연결 실패. 코드: " + std::to_string(video_error));
+    DisconnectNamedPipe(audio_pipe_);
+    CloseHandles();
+    return false;
+  }
+
+  printf("[C++] ✅ 두 파이프 모두 연결 완료\n");
   fflush(stdout);
   printf("[C++] =================================\n");
   fflush(stdout);
@@ -502,7 +358,7 @@ bool FFmpegPipeline::CreateNamedPipes() {
 
   video_pipe_ = CreateNamedPipeW(
       video_pipe_name_.c_str(),
-      PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,  // 비동기 모드
+      PIPE_ACCESS_OUTBOUND,  // 동기 모드
       PIPE_TYPE_BYTE | PIPE_WAIT,
       1,  // nMaxInstances = 1 (순차 연결 방식)
       kPipeBufferSizeVideo,
@@ -522,7 +378,7 @@ bool FFmpegPipeline::CreateNamedPipes() {
 
   audio_pipe_ = CreateNamedPipeW(
       audio_pipe_name_.c_str(),
-      PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,  // 비동기 모드
+      PIPE_ACCESS_OUTBOUND,  // 동기 모드
       PIPE_TYPE_BYTE | PIPE_WAIT,
       1,  // nMaxInstances = 1 (순차 연결 방식)
       kPipeBufferSizeAudio,
@@ -690,14 +546,6 @@ void FFmpegPipeline::CloseHandles() {
   if (audio_pipe_ != INVALID_HANDLE_VALUE) {
     CloseHandle(audio_pipe_);
     audio_pipe_ = INVALID_HANDLE_VALUE;
-  }
-  if (audio_event_ != nullptr) {
-    CloseHandle(audio_event_);
-    audio_event_ = nullptr;
-  }
-  if (video_event_ != nullptr) {
-    CloseHandle(video_event_);
-    video_event_ = nullptr;
   }
   if (process_info_.hThread != nullptr) {
     CloseHandle(process_info_.hThread);
