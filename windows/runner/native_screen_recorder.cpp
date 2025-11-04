@@ -573,12 +573,25 @@ static void EncoderThreadFunc() {
     printf("[C++] EncoderThreadFunc: while 루프 진입 준비...\n");
     fflush(stdout);
 
-    // Video-only 모드일 때는 audio_queue 체크 스킵
+    // ⚠️ 스레드 안전성: 큐 접근 시 항상 뮤텍스 보호 필요
     auto should_continue = [&]() {
+        bool has_frames = false;
+        bool has_audio = false;
+
+        {
+            std::lock_guard<std::mutex> lock(g_queue_mutex);
+            has_frames = !g_frame_queue.empty();
+        }
+
+        if (!g_video_only) {
+            std::lock_guard<std::mutex> audio_lock(g_audio_queue_mutex);
+            has_audio = !g_audio_queue.empty();
+        }
+
         if (g_video_only) {
-            return g_is_recording || !g_frame_queue.empty();
+            return g_is_recording || has_frames;
         } else {
-            return g_is_recording || !g_frame_queue.empty() || !g_audio_queue.empty();
+            return g_is_recording || has_frames || has_audio;
         }
     };
 
