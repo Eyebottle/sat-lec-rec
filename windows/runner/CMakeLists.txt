@@ -12,7 +12,7 @@ add_executable(${BINARY_NAME} WIN32
   "utils.cpp"
   "win32_window.cpp"
   "native_screen_recorder.cpp"
-  "ffmpeg_pipeline.cpp"
+  "libav_encoder.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "runner.exe.manifest"
@@ -45,10 +45,25 @@ if(MSVC)
   target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
 endif()
 
+# FFmpeg 라이브러리 설정
+set(FFMPEG_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg")
+target_include_directories(${BINARY_NAME} PRIVATE "${FFMPEG_DIR}/include")
+link_directories("${FFMPEG_DIR}/lib")
+
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+
+# FFmpeg 라이브러리 링크
+target_link_libraries(${BINARY_NAME} PRIVATE
+  avcodec
+  avformat
+  avutil
+  swscale
+  swresample
+)
+
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
