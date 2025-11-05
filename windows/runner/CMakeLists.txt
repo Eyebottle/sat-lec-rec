@@ -46,25 +46,25 @@ if(MSVC)
 endif()
 
 # FFmpeg 라이브러리 설정
-set(FFMPEG_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg")
-target_include_directories(${BINARY_NAME} PRIVATE "${FFMPEG_DIR}/include")
-link_directories("${FFMPEG_DIR}/lib")
+# CMAKE_SOURCE_DIR은 windows/ 디렉토리이므로, 프로젝트 루트로 가려면 한 단계 위로
+set(FFMPEG_DIR "${CMAKE_SOURCE_DIR}/../third_party/ffmpeg")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
+target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+target_include_directories(${BINARY_NAME} PRIVATE "${FFMPEG_DIR}/include")
+
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 
 # FFmpeg 라이브러리 링크
 target_link_libraries(${BINARY_NAME} PRIVATE
-  avcodec
-  avformat
-  avutil
-  swscale
-  swresample
+  "${FFMPEG_DIR}/lib/avcodec.lib"
+  "${FFMPEG_DIR}/lib/avformat.lib"
+  "${FFMPEG_DIR}/lib/avutil.lib"
+  "${FFMPEG_DIR}/lib/swscale.lib"
+  "${FFMPEG_DIR}/lib/swresample.lib"
 )
-
-target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
