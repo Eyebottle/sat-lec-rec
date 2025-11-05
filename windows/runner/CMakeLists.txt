@@ -52,7 +52,8 @@ set(FFMPEG_DIR "${CMAKE_SOURCE_DIR}/../third_party/ffmpeg")
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
-target_include_directories(${BINARY_NAME} PRIVATE "${FFMPEG_DIR}/include")
+# FFmpeg를 시스템 헤더로 처리하여 경고를 무시 (SYSTEM 키워드 사용)
+target_include_directories(${BINARY_NAME} SYSTEM PRIVATE "${FFMPEG_DIR}/include")
 
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")

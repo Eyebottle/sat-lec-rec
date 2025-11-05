@@ -57,6 +57,7 @@ static std::thread g_audio_thread;
 
 static std::thread g_encoder_thread;
 static std::unique_ptr<LibavEncoder> g_libav_encoder;
+static bool g_video_only = false;  // 비디오만 녹화할지 여부 (기본값: 오디오도 함께 녹화)
 
 // 타임스탬프 관리
 static LARGE_INTEGER g_recording_start_qpc;

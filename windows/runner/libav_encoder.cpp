@@ -137,8 +137,8 @@ bool LibavEncoder::InitializeVideoCodec() {
     video_codec_ctx_->width = config_.video_width;
     video_codec_ctx_->height = config_.video_height;
     video_codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
-    video_codec_ctx_->time_base = (AVRational){1, config_.video_fps};
-    video_codec_ctx_->framerate = (AVRational){config_.video_fps, 1};
+    video_codec_ctx_->time_base = AVRational{1, config_.video_fps};
+    video_codec_ctx_->framerate = AVRational{config_.video_fps, 1};
     video_codec_ctx_->gop_size = config_.video_fps;  // 1초마다 키프레임
 
     // CRF 품질 설정
@@ -228,7 +228,7 @@ bool LibavEncoder::InitializeAudioCodec() {
 
     audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_FLTP;  // Planar float
     audio_codec_ctx_->bit_rate = config_.aac_bitrate;
-    audio_codec_ctx_->time_base = (AVRational){1, config_.audio_sample_rate};
+    audio_codec_ctx_->time_base = AVRational{1, config_.audio_sample_rate};
 
     // 5. 인코더 열기
     int ret = avcodec_open2(audio_codec_ctx_, codec, nullptr);
