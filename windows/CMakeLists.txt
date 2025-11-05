@@ -106,3 +106,12 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# FFmpeg DLL 파일 복사 (런타임에 필요)
+set(FFMPEG_BIN_DIR "${CMAKE_SOURCE_DIR}/../third_party/ffmpeg/bin")
+file(GLOB FFMPEG_DLLS "${FFMPEG_BIN_DIR}/*.dll")
+if(FFMPEG_DLLS)
+  install(FILES ${FFMPEG_DLLS}
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
