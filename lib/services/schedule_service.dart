@@ -13,7 +13,7 @@ import 'package:cron/cron.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/recording_schedule.dart';
+import '../models/recording_schedule.dart'; // ScheduleType도 여기서 import됨
 import 'recorder_service.dart';
 import 'health_check_service.dart';  // Phase 3.2.2
 import 'zoom_launcher_service.dart';  // Phase 3.3.1
@@ -274,10 +274,16 @@ class ScheduleService {
       );
 
       // 마지막 실행 시각 업데이트
+      // 1회성 예약은 실행 후 자동으로 비활성화
       final updatedSchedule = schedule.copyWith(
         lastExecutedAt: DateTime.now(),
+        isEnabled: schedule.type == ScheduleType.oneTime ? false : schedule.isEnabled,
       );
       await updateSchedule(updatedSchedule);
+
+      if (schedule.type == ScheduleType.oneTime) {
+        _logger.i('✅ 1회성 예약 실행 완료 - 자동 비활성화됨: ${schedule.name}');
+      }
 
       _logger.i('✅ 예약 녹화 시작 완료: $outputPath');
 

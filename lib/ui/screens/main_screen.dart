@@ -41,6 +41,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   final TextEditingController _startTimeController = TextEditingController();
   final TextEditingController _durationController = TextEditingController();
 
+  // 스케줄 타입 선택
+  ScheduleType _scheduleType = ScheduleType.weekly;
+  int _selectedDayOfWeek = 6; // 기본값: 토요일 (0=일요일, 6=토요일)
+  DateTime? _selectedDate; // 1회성 예약용
+
   @override
   void initState() {
     super.initState();
@@ -237,6 +242,101 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
+
+          // 스케줄 타입 선택
+          Text(
+            '예약 방식',
+            style: AppTypography.titleSmall,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: RadioListTile<ScheduleType>(
+                  title: const Text('매주 반복'),
+                  value: ScheduleType.weekly,
+                  groupValue: _scheduleType,
+                  onChanged: (value) {
+                    setState(() {
+                      _scheduleType = value!;
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+              ),
+              Expanded(
+                child: RadioListTile<ScheduleType>(
+                  title: const Text('1회성'),
+                  value: ScheduleType.oneTime,
+                  groupValue: _scheduleType,
+                  onChanged: (value) {
+                    setState(() {
+                      _scheduleType = value!;
+                    });
+                  },
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // 매주 반복: 요일 선택
+          if (_scheduleType == ScheduleType.weekly)
+            DropdownButtonFormField<int>(
+              value: _selectedDayOfWeek,
+              decoration: const InputDecoration(
+                labelText: '요일 선택',
+                prefixIcon: Icon(Icons.calendar_today),
+              ),
+              items: const [
+                DropdownMenuItem(value: 0, child: Text('일요일')),
+                DropdownMenuItem(value: 1, child: Text('월요일')),
+                DropdownMenuItem(value: 2, child: Text('화요일')),
+                DropdownMenuItem(value: 3, child: Text('수요일')),
+                DropdownMenuItem(value: 4, child: Text('목요일')),
+                DropdownMenuItem(value: 5, child: Text('금요일')),
+                DropdownMenuItem(value: 6, child: Text('토요일')),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedDayOfWeek = value!;
+                });
+              },
+            ),
+
+          // 1회성: 날짜 선택
+          if (_scheduleType == ScheduleType.oneTime)
+            InkWell(
+              onTap: () async {
+                final DateTime? picked = await showDatePicker(
+                  context: context,
+                  initialDate: _selectedDate ?? DateTime.now().add(const Duration(days: 1)),
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (picked != null) {
+                  setState(() {
+                    _selectedDate = picked;
+                  });
+                }
+              },
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: '날짜 선택',
+                  prefixIcon: Icon(Icons.event),
+                ),
+                child: Text(
+                  _selectedDate != null
+                      ? '${_selectedDate!.year}년 ${_selectedDate!.month}월 ${_selectedDate!.day}일'
+                      : '날짜를 선택하세요',
+                  style: _selectedDate != null ? null : TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+            ),
+          const SizedBox(height: AppSpacing.md),
 
           // Zoom 링크 입력
           TextField(
@@ -519,12 +619,26 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       return;
     }
 
+    // 1회성 예약은 날짜 필수
+    if (_scheduleType == ScheduleType.oneTime && _selectedDate == null) {
+      _showError('1회성 예약은 날짜를 선택해야 합니다');
+      return;
+    }
+
     try {
       final now = DateTime.now();
+
+      // 스케줄 이름 자동 생성
+      final scheduleName = _scheduleType == ScheduleType.weekly
+          ? '매주 ${['일', '월', '화', '수', '목', '금', '토'][_selectedDayOfWeek]}요일 $startTimeStr 녹화'
+          : '${_selectedDate!.month}/${_selectedDate!.day} $startTimeStr 녹화';
+
       final schedule = RecordingSchedule(
         id: const Uuid().v4(),
-        name: '${now.month}/${now.day} $startTimeStr 녹화',
-        dayOfWeek: now.weekday % 7,
+        name: scheduleName,
+        type: _scheduleType,
+        dayOfWeek: _scheduleType == ScheduleType.weekly ? _selectedDayOfWeek : null,
+        specificDate: _scheduleType == ScheduleType.oneTime ? _selectedDate : null,
         startTime: TimeOfDay(hour: hour, minute: minute),
         durationMinutes: durationMinutes,
         zoomLink: zoomLink,
@@ -538,6 +652,11 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       _zoomLinkController.clear();
       _startTimeController.clear();
       _durationController.clear();
+      setState(() {
+        _selectedDate = null;
+        _scheduleType = ScheduleType.weekly;
+        _selectedDayOfWeek = 6; // 토요일로 초기화
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
