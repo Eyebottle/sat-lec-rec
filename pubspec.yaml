@@ -59,6 +59,9 @@ dependencies:
   # UI
   cupertino_icons: ^1.0.8
 
+  # Google Fonts - 폰트 자동 다운로드 및 적용
+  google_fonts: ^6.2.1
+
   # UUID generation (Phase 3.2.1) - system_tray와 호환되는 버전
   uuid: ^3.0.7
 
@@ -94,24 +97,4 @@ flutter:
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
 
-  # Custom fonts for UI design system
-  fonts:
-    - family: Noto Sans KR
-      fonts:
-        - asset: assets/fonts/NotoSansKR-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/NotoSansKR-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/NotoSansKR-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/NotoSansKR-Bold.ttf
-          weight: 700
-
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/Inter-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/Inter-Bold.ttf
-          weight: 700
+  # Google Fonts를 사용하므로 로컬 폰트 파일 불필요
