@@ -1,0 +1,568 @@
+import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:uuid/uuid.dart';
+import '../../services/recorder_service.dart';
+import '../../services/schedule_service.dart';
+import '../../services/tray_service.dart';
+import '../../services/settings_service.dart';
+import '../../services/zoom_launcher_service.dart';
+import '../../services/logger_service.dart';
+import '../../models/recording_schedule.dart';
+import '../widgets/recording_progress_widget.dart';
+import '../widgets/common/app_button.dart';
+import '../widgets/common/app_card.dart';
+import '../style/app_colors.dart';
+import '../style/app_typography.dart';
+import '../style/app_spacing.dart';
+import 'schedule_screen.dart';
+import 'settings_screen.dart';
+
+final logger = LoggerService.instance.logger;
+
+/// 메인 화면
+///
+/// 녹화 예약 입력, 빠른 테스트, 녹화 진행 상태를 표시하는 메인 화면입니다.
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> with WindowListener {
+  final RecorderService _recorderService = RecorderService();
+  final ScheduleService _scheduleService = ScheduleService();
+  final TrayService _trayService = TrayService();
+  final SettingsService _settingsService = SettingsService();
+  final ZoomLauncherService _zoomLauncherService = ZoomLauncherService();
+
+  // 예약 입력 필드 컨트롤러
+  final TextEditingController _zoomLinkController = TextEditingController();
+  final TextEditingController _startTimeController = TextEditingController();
+  final TextEditingController _durationController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _initializeServices();
+    });
+  }
+
+  Future<void> _initializeServices() async {
+    try {
+      logger.i('SettingsService 초기화 시작...');
+      await _settingsService.initialize();
+      logger.i('✅ SettingsService 초기화 완료');
+
+      logger.i('RecorderService 초기화 시작...');
+      await _recorderService.initialize();
+      logger.i('✅ RecorderService 초기화 완료');
+
+      logger.i('ScheduleService 초기화 시작...');
+      await _scheduleService.initialize();
+      logger.i('✅ ScheduleService 초기화 완료');
+
+      try {
+        logger.i('TrayService 초기화 시작...');
+        await _trayService.initialize();
+        logger.i('✅ TrayService 초기화 완료');
+      } catch (e) {
+        logger.w('⚠️ TrayService 초기화 실패 (앱은 계속 실행됨)', error: e);
+      }
+    } catch (e, stackTrace) {
+      logger.e('❌ 서비스 초기화 실패', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  @override
+  void dispose() {
+    _zoomLinkController.dispose();
+    _startTimeController.dispose();
+    _durationController.dispose();
+    _recorderService.dispose();
+    _scheduleService.dispose();
+    _trayService.dispose();
+    _settingsService.dispose();
+    LoggerService.instance.dispose();
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() async {
+    logger.i('창 닫기 요청');
+
+    if (_recorderService.isRecording) {
+      logger.w('⚠️ 녹화 중 - 창 닫기 취소');
+      if (mounted) {
+        final shouldClose = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('녹화 중'),
+            content: const Text('현재 녹화가 진행 중입니다.\n정말 종료하시겠습니까?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('취소'),
+              ),
+              AppButton.error(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('종료'),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldClose != true) {
+          return;
+        }
+
+        try {
+          await _recorderService.stopRecording();
+          logger.i('녹화 중지 후 앱 종료');
+        } catch (e) {
+          logger.e('녹화 중지 실패', error: e);
+        }
+      }
+    }
+
+    if (_trayService.isInitialized) {
+      logger.i('트레이로 최소화');
+      await _trayService.hideWindow();
+    } else {
+      logger.w('트레이 미초기화 - 앱 종료');
+      windowManager.destroy();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(
+          'sat-lec-rec - 토요일 강의 자동 녹화',
+          style: AppTypography.titleLarge,
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            tooltip: '스케줄 관리',
+            onPressed: () {
+              logger.d('스케줄 관리 버튼 클릭');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ScheduleScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '설정',
+            onPressed: () {
+              logger.d('설정 버튼 클릭');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 녹화 예약 카드
+            _buildScheduleInputCard(),
+            const SizedBox(height: AppSpacing.md),
+
+            // 빠른 테스트 버튼
+            _buildQuickTestSection(),
+            const SizedBox(height: AppSpacing.md),
+
+            // 녹화 진행률 위젯
+            const RecordingProgressWidget(),
+            const SizedBox(height: AppSpacing.md),
+
+            // 상태 카드
+            _buildStatusCard(),
+            const SizedBox(height: AppSpacing.xl),
+
+            // 버전 정보
+            Center(
+              child: Text(
+                'v1.0.0 (M0: 프로젝트 초기 설정)',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 녹화 예약 입력 카드
+  Widget _buildScheduleInputCard() {
+    return AppCard.level2(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 헤더
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  Icons.event,
+                  color: AppColors.primary,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Text(
+                '녹화 예약',
+                style: AppTypography.headlineSmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Zoom 링크 입력
+          TextField(
+            controller: _zoomLinkController,
+            decoration: const InputDecoration(
+              labelText: 'Zoom 링크',
+              hintText: 'https://zoom.us/j/...',
+              prefixIcon: Icon(Icons.link),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // 시작 시간 & 녹화 시간
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _startTimeController,
+                  decoration: const InputDecoration(
+                    labelText: '시작 시간',
+                    hintText: '08:00',
+                    prefixIcon: Icon(Icons.access_time),
+                  ),
+                  onTap: () async {
+                    final TimeOfDay? picked = await showTimePicker(
+                      context: context,
+                      initialTime: TimeOfDay.now(),
+                    );
+                    if (picked != null) {
+                      _startTimeController.text =
+                          '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                    }
+                  },
+                  readOnly: true,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextField(
+                  controller: _durationController,
+                  decoration: const InputDecoration(
+                    labelText: '녹화 시간 (분)',
+                    hintText: '80',
+                    prefixIcon: Icon(Icons.timer),
+                  ),
+                  keyboardType: TextInputType.number,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // 저장 버튼
+          AppButton.primary(
+            onPressed: () => _saveSchedule(context),
+            icon: Icons.save,
+            child: const Text('예약 저장'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 빠른 테스트 섹션
+  Widget _buildQuickTestSection() {
+    return Row(
+      children: [
+        Expanded(
+          child: AppButton.tonal(
+            onPressed: _recorderService.isRecording
+                ? null
+                : () => _test10SecRecording(),
+            icon: Icons.play_circle_outline,
+            child: const Text('10초 녹화 테스트'),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: AppButton.secondary(
+            onPressed: () => _testZoomLaunch(),
+            icon: Icons.videocam,
+            child: const Text('Zoom 실행 테스트'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 상태 카드
+  Widget _buildStatusCard() {
+    final schedules = _scheduleService.schedules;
+    final activeSchedules = schedules.where((s) => s.isEnabled).toList();
+    final nextSchedule = _scheduleService.getNextSchedule();
+
+    String statusText;
+    String detailText;
+    IconData statusIcon;
+    Color statusColor;
+
+    if (_recorderService.isRecording) {
+      statusText = '녹화 중';
+      detailText = '현재 녹화가 진행 중입니다';
+      statusIcon = Icons.fiber_manual_record;
+      statusColor = AppColors.recordingActive;
+    } else if (nextSchedule != null) {
+      final schedule = nextSchedule.schedule;
+      final nextExecution = nextSchedule.nextExecution;
+      final remaining = nextExecution.difference(DateTime.now());
+
+      String remainingText;
+      if (remaining.inDays > 0) {
+        remainingText = '${remaining.inDays}일 ${remaining.inHours % 24}시간';
+      } else if (remaining.inHours > 0) {
+        remainingText = '${remaining.inHours}시간 ${remaining.inMinutes % 60}분';
+      } else {
+        remainingText = '${remaining.inMinutes}분';
+      }
+
+      statusText = '다음 예약: ${schedule.name}';
+      detailText = '$remainingText 후 시작 (${schedule.startTimeFormatted})';
+      statusIcon = Icons.schedule;
+      statusColor = AppColors.primary;
+    } else if (activeSchedules.isNotEmpty) {
+      statusText = '대기 중';
+      detailText = '활성화된 예약 ${activeSchedules.length}개';
+      statusIcon = Icons.pending;
+      statusColor = AppColors.warning;
+    } else {
+      statusText = '대기 중';
+      detailText = '예약된 녹화가 없습니다';
+      statusIcon = Icons.info_outline;
+      statusColor = AppColors.info;
+    }
+
+    return AppCard.level1(
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(statusIcon, color: statusColor, size: 24),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '상태: $statusText',
+                  style: AppTypography.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  detailText,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 10초 녹화 테스트
+  Future<void> _test10SecRecording() async {
+    logger.i('10초 테스트 버튼 클릭');
+    try {
+      final filePath = await _recorderService.startRecording(
+        durationSeconds: 10,
+      );
+
+      if (filePath != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('10초 녹화 시작\n$filePath'),
+            duration: const Duration(seconds: 3),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      logger.e('녹화 시작 실패', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('녹화 시작 실패: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Zoom 실행 테스트
+  Future<void> _testZoomLaunch() async {
+    logger.i('Zoom 실행 테스트 버튼 클릭');
+    try {
+      const testLink = 'https://zoom.us/test';
+
+      final success = await _zoomLauncherService.launchZoomMeeting(
+        zoomLink: testLink,
+        waitSeconds: 5,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? 'Zoom 실행 성공!\nZoom이 열렸는지 확인하세요.'
+                  : 'Zoom 실행 실패\n로그를 확인하세요.',
+            ),
+            duration: const Duration(seconds: 3),
+            backgroundColor: success ? AppColors.success : AppColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      logger.e('Zoom 실행 테스트 실패', error: e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Zoom 실행 실패: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  /// 예약 저장
+  Future<void> _saveSchedule(BuildContext context) async {
+    final zoomLink = _zoomLinkController.text.trim();
+    final startTimeStr = _startTimeController.text.trim();
+    final durationStr = _durationController.text.trim();
+
+    // 검증
+    if (zoomLink.isEmpty) {
+      _showError('Zoom 링크를 입력하세요');
+      return;
+    }
+    if (startTimeStr.isEmpty) {
+      _showError('시작 시간을 선택하세요');
+      return;
+    }
+    if (durationStr.isEmpty) {
+      _showError('녹화 시간을 입력하세요');
+      return;
+    }
+
+    // 시간 파싱
+    final timeParts = startTimeStr.split(':');
+    if (timeParts.length != 2) {
+      _showError('시작 시간 형식이 올바르지 않습니다 (HH:MM)');
+      return;
+    }
+
+    final hour = int.tryParse(timeParts[0]);
+    final minute = int.tryParse(timeParts[1]);
+    if (hour == null ||
+        minute == null ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59) {
+      _showError('시작 시간이 올바르지 않습니다');
+      return;
+    }
+
+    final durationMinutes = int.tryParse(durationStr);
+    if (durationMinutes == null || durationMinutes < 1) {
+      _showError('녹화 시간은 1분 이상이어야 합니다');
+      return;
+    }
+
+    try {
+      final now = DateTime.now();
+      final schedule = RecordingSchedule(
+        id: const Uuid().v4(),
+        name: '${now.month}/${now.day} $startTimeStr 녹화',
+        dayOfWeek: now.weekday % 7,
+        startTime: TimeOfDay(hour: hour, minute: minute),
+        durationMinutes: durationMinutes,
+        zoomLink: zoomLink,
+        isEnabled: true,
+      );
+
+      await _scheduleService.addSchedule(schedule);
+      logger.i('✅ 예약 저장 완료: ${schedule.name}');
+
+      // 입력 필드 초기화
+      _zoomLinkController.clear();
+      _startTimeController.clear();
+      _durationController.clear();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ 예약이 저장되었습니다: ${schedule.name}'),
+            duration: const Duration(seconds: 3),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        setState(() {});
+      }
+    } catch (e) {
+      logger.e('❌ 예약 저장 실패', error: e);
+      _showError('예약 저장 실패: $e');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+}
