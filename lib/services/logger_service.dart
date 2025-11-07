@@ -212,8 +212,8 @@ class _RotatingFileOutput extends LogOutput {
   }
 
   @override
-  void destroy() {
-    _sink?.close();
+  Future<void> destroy() async {
+    await _sink?.close();
     _sink = null;
   }
 }
