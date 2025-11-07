@@ -387,36 +387,53 @@ bool LibavEncoder::EncodeAudio(const uint8_t* float32_data, size_t length) {
         return false;
     }
 
-    // 예상 크기 검증 (frame_size 샘플 * 2 채널 * 4 바이트)
-    size_t expected_size = audio_codec_ctx_->frame_size * config_.audio_channels * sizeof(float);
-    if (length != expected_size) {
-        SetLastError("Audio 샘플 크기 불일치");
-        return false;
+    // 1. 입력 데이터를 버퍼에 추가
+    const float* samples = reinterpret_cast<const float*>(float32_data);
+    size_t sample_count = length / sizeof(float);  // Interleaved 샘플 수 (L+R+L+R...)
+    audio_buffer_.insert(audio_buffer_.end(), samples, samples + sample_count);
+
+    // 2. 버퍼에서 frame_size 프레임을 추출하여 인코딩
+    int frame_size = audio_codec_ctx_->frame_size;  // 1024
+    int channels = config_.audio_channels;          // 2
+    size_t samples_per_frame = frame_size * channels;  // 2048 (Interleaved)
+
+    while (audio_buffer_.size() >= samples_per_frame) {
+        // 2.1. frame_size 프레임만큼 추출
+        std::vector<float> frame_data(audio_buffer_.begin(),
+                                      audio_buffer_.begin() + samples_per_frame);
+
+        // 2.2. Interleaved Float32 → Planar Float 변환
+        const uint8_t* src_data[1] = { reinterpret_cast<const uint8_t*>(frame_data.data()) };
+        int ret = swr_convert(
+            swr_ctx_,
+            audio_frame_->data,
+            audio_frame_->nb_samples,
+            src_data,
+            frame_size  // 주의: 채널 수가 아닌 프레임 수
+        );
+
+        if (ret < 0) {
+            char err_buf[128];
+            av_strerror(ret, err_buf, sizeof(err_buf));
+            SetLastError(std::string("swr_convert 실패: ") + err_buf);
+            return false;
+        }
+
+        // 2.3. PTS 설정
+        audio_frame_->pts = next_audio_pts_;
+        next_audio_pts_ += frame_size;
+
+        // 2.4. 인코더에 전송
+        if (!SendAudioFrame(audio_frame_)) {
+            return false;
+        }
+
+        // 2.5. 버퍼에서 제거
+        audio_buffer_.erase(audio_buffer_.begin(),
+                           audio_buffer_.begin() + samples_per_frame);
     }
 
-    // 1. Interleaved Float32 → Planar Float 변환
-    const uint8_t* src_data[1] = { float32_data };
-    int ret = swr_convert(
-        swr_ctx_,
-        audio_frame_->data,
-        audio_frame_->nb_samples,
-        src_data,
-        audio_frame_->nb_samples
-    );
-
-    if (ret < 0) {
-        char err_buf[128];
-        av_strerror(ret, err_buf, sizeof(err_buf));
-        SetLastError(std::string("swr_convert 실패: ") + err_buf);
-        return false;
-    }
-
-    // 2. PTS 설정
-    audio_frame_->pts = next_audio_pts_;
-    next_audio_pts_ += audio_frame_->nb_samples;
-
-    // 3. 인코더에 전송
-    return SendAudioFrame(audio_frame_);
+    return true;
 }
 
 bool LibavEncoder::SendAudioFrame(AVFrame* frame) {
@@ -546,6 +563,7 @@ void LibavEncoder::Cleanup() {
     if (audio_codec_ctx_) {
         avcodec_free_context(&audio_codec_ctx_);
     }
+    audio_buffer_.clear();  // 오디오 샘플 버퍼 정리
 
     // Format
     if (format_ctx_) {

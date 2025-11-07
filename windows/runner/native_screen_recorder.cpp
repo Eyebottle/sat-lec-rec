@@ -479,7 +479,7 @@ static bool ProcessNextVideoFrame() {
     }
 
     g_video_frame_count++;
-    if (g_video_frame_count == 1 || g_video_frame_count % 120 == 0) {
+    if (g_video_frame_count == 1 || g_video_frame_count % 300 == 0) {
         printf("[C++] 비디오 프레임 #%lld 전송 완료\n", g_video_frame_count);
         fflush(stdout);
     }
@@ -549,7 +549,7 @@ static bool ProcessNextAudioSample() {
     g_audio_sample_count += audio.frame_count;
 
     audio_packet_count++;
-    if (audio_packet_count == 1 || audio_packet_count % 100 == 0) {
+    if (audio_packet_count == 1 || audio_packet_count % 500 == 0) {
         printf("[C++] 오디오 패킷 #%d 전송 완료\n", audio_packet_count);
         fflush(stdout);
     }
@@ -726,7 +726,7 @@ static void AudioCaptureThreadFunc() {
                     printf("[C++] 🎤 첫 번째 오디오 샘플 캡처 성공! (%d frames)\n", frames_available);
                     fflush(stdout);
                 }
-                if (sample_count % 100 == 0) {
+                if (sample_count % 500 == 0) {
                     printf("[C++] 📊 오디오 샘플: %d개 캡처됨\n", sample_count);
                     fflush(stdout);
                 }
@@ -960,7 +960,7 @@ static void CaptureThreadFunc(
                 printf("[C++] 🎬 첫 번째 프레임 캡처 성공!\n");
                 fflush(stdout);
             }
-            if (frame_count % 24 == 0) {  // 1초마다 로그 (24fps 기준)
+            if (frame_count % 300 == 0) {  // 10초마다 로그 (30fps 기준)
                 printf("[C++] 📊 캡처된 프레임: %d\n", frame_count);
                 fflush(stdout);
             }

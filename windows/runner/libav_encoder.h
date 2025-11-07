@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // FFmpeg 헤더 (C 라이브러리이므로 extern "C" 필요)
 extern "C" {
@@ -106,6 +107,7 @@ private:
     AVFrame* audio_frame_ = nullptr;
     SwrContext* swr_ctx_ = nullptr;
     int64_t next_audio_pts_ = 0;
+    std::vector<float> audio_buffer_;  // 오디오 샘플 버퍼 (Interleaved Float32)
 
     // === 상태 ===
     bool is_running_ = false;

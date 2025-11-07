@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/recording_schedule.dart';
 import 'recorder_service.dart';
 import 'health_check_service.dart';  // Phase 3.2.2
+import 'zoom_launcher_service.dart';  // Phase 3.3.1
 
 /// 스케줄 관리 서비스 (싱글톤)
 class ScheduleService {
@@ -40,6 +41,9 @@ class ScheduleService {
 
   /// HealthCheckService 참조 - Phase 3.2.2
   final HealthCheckService _healthCheckService = HealthCheckService();
+
+  /// ZoomLauncherService 참조 - Phase 3.3.1
+  final ZoomLauncherService _zoomLauncherService = ZoomLauncherService();
 
   /// SharedPreferences 키
   static const String _schedulesPrefKey = 'recording_schedules';
@@ -251,6 +255,18 @@ class ScheduleService {
     _logger.i('🎬 예약 녹화 시작: ${schedule.name}');
 
     try {
+      // Phase 3.3.1: Zoom 자동 실행
+      _logger.i('🚀 Zoom 회의 실행 중...');
+      final zoomLaunched = await _zoomLauncherService.launchZoomMeeting(
+        zoomLink: schedule.zoomLink,
+        waitSeconds: 15,  // 15초 대기 (Zoom 앱 실행 + 회의 참가)
+      );
+
+      if (!zoomLaunched) {
+        _logger.w('⚠️ Zoom 실행 실패 - 녹화는 계속 진행');
+        // Zoom 실패해도 녹화는 진행 (수동으로 참가할 수 있음)
+      }
+
       // RecorderService를 통해 녹화 시작
       final outputPath = await _recorderService.startRecordingWithZoomLink(
         zoomLink: schedule.zoomLink,
@@ -264,6 +280,13 @@ class ScheduleService {
       await updateSchedule(updatedSchedule);
 
       _logger.i('✅ 예약 녹화 시작 완료: $outputPath');
+
+      // Phase 3.3.1: 녹화 종료 후 Zoom 종료 예약
+      final recordingDuration = Duration(minutes: schedule.durationMinutes);
+      Timer(recordingDuration + const Duration(seconds: 5), () async {
+        _logger.i('🚪 녹화 종료 - Zoom 앱 종료 시도');
+        await _zoomLauncherService.closeZoomMeeting();
+      });
     } catch (e, stackTrace) {
       _logger.e('❌ 예약 녹화 시작 실패: ${schedule.name}', error: e, stackTrace: stackTrace);
 

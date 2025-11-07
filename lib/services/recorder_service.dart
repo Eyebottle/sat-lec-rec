@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
 import 'package:ffi/ffi.dart';
 import '../ffi/native_bindings.dart';
+import 'tray_service.dart';  // Phase 3.2.3
 
 final _logger = Logger(
   printer: PrettyPrinter(
@@ -93,6 +94,16 @@ class RecorderService {
       _currentFilePath = outputPath;
       _logger.i('✅ 녹화 시작 완료');
 
+      // Phase 3.2.3: 트레이 상태 업데이트
+      final trayService = TrayService();
+      if (trayService.isInitialized) {
+        await trayService.updateRecordingStatus(true);
+        await trayService.showNotification(
+          title: '녹화 시작',
+          message: '$durationSeconds초 동안 녹화를 시작합니다.',
+        );
+      }
+
       // N초 후 자동 중지
       Timer(Duration(seconds: durationSeconds), () async {
         await stopRecording();
@@ -148,6 +159,23 @@ class RecorderService {
       }
 
       _logger.i('✅ 녹화 중지 완료');
+
+      // Phase 3.2.3: 트레이 상태 업데이트
+      final trayService = TrayService();
+      if (trayService.isInitialized) {
+        await trayService.updateRecordingStatus(false);
+        if (filePath != null) {
+          final file = File(filePath);
+          if (await file.exists()) {
+            final fileSize = await file.length();
+            await trayService.showNotification(
+              title: '녹화 완료',
+              message: '녹화가 완료되었습니다. (${(fileSize / (1024 * 1024)).toStringAsFixed(2)} MB)',
+            );
+          }
+        }
+      }
+
       _currentFilePath = null;
       return filePath;
     } catch (e, stackTrace) {
