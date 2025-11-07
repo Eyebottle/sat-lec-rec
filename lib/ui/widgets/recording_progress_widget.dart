@@ -6,9 +6,12 @@
 // Phase 3.1.2: 오디오 레벨 미터 추가
 
 import 'dart:async';
-import 'dart:math';  // Phase 3.1.2: log, ln10
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../ffi/native_bindings.dart';
+import '../widgets/common/app_card.dart';
+import '../style/app_colors.dart';
+import '../style/app_typography.dart';
 
 /// 녹화 진행 상태를 나타내는 데이터 클래스
 class RecordingProgress {
@@ -137,11 +140,9 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
 
     final progress = _progress!;
 
-    return Card(
-      color: Theme.of(context).colorScheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+    return AppCard.level2(
+      color: AppColors.recordingActive.withOpacity(0.1),
+      child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 헤더: 녹화 중 표시
@@ -149,14 +150,14 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
               children: [
                 // 빨간 점 애니메이션
                 Container(
-                  width: 12,
-                  height: 12,
+                  width: 14,
+                  height: 14,
                   decoration: BoxDecoration(
-                    color: Colors.red,
+                    color: AppColors.recordingActive,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.red.withOpacity(0.5),
+                        color: AppColors.recordingActive.withOpacity(0.5),
                         blurRadius: 8,
                         spreadRadius: 2,
                       ),
@@ -166,18 +167,15 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
                 const SizedBox(width: 12),
                 Text(
                   '녹화 중',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: AppTypography.titleMedium,
                 ),
                 const Spacer(),
                 // 경과 시간 (크게 표시)
                 Text(
                   progress.formattedTime,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        fontFeatures: [const FontFeature.tabularFigures()],
-                      ),
+                  style: AppTypography.numberMedium.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
                 ),
               ],
             ),
