@@ -209,7 +209,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
             _buildAudioLevelMeter(context, progress),
           ],
         ),
-      ),
+      )
     );
   }
 
