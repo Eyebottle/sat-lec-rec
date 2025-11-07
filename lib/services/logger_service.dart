@@ -63,7 +63,7 @@ class LoggerService {
           ConsoleOutput(),
           _RotatingFileOutput(_currentLogFile!),
         ]),
-        level: Level.debug,
+        level: Level.info,  // debug → info로 변경하여 디버그 로그 제거
       );
 
       _logger.i('✅ LoggerService 초기화 완료');
