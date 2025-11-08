@@ -101,7 +101,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
     if (_recorderService.isRecording) {
       logger.w('⚠️ 녹화 중 - 창 닫기 취소');
-      if (mounted) {
+      if (context.mounted) {
         final shouldClose = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -255,7 +255,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 child: RadioListTile<ScheduleType>(
                   title: const Text('매주 반복'),
                   value: ScheduleType.weekly,
+                  // ignore: deprecated_member_use
                   groupValue: _scheduleType,
+                  // ignore: deprecated_member_use
                   onChanged: (value) {
                     setState(() {
                       _scheduleType = value!;
@@ -269,7 +271,9 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                 child: RadioListTile<ScheduleType>(
                   title: const Text('1회성'),
                   value: ScheduleType.oneTime,
+                  // ignore: deprecated_member_use
                   groupValue: _scheduleType,
+                  // ignore: deprecated_member_use
                   onChanged: (value) {
                     setState(() {
                       _scheduleType = value!;
@@ -286,7 +290,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
           // 매주 반복: 요일 선택
           if (_scheduleType == ScheduleType.weekly)
             DropdownButtonFormField<int>(
-              value: _selectedDayOfWeek,
+              initialValue: _selectedDayOfWeek,
               decoration: const InputDecoration(
                 labelText: '요일 선택',
                 prefixIcon: Icon(Icons.calendar_today),
@@ -478,7 +482,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.12),
+              color: statusColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(statusIcon, color: statusColor, size: 24),
@@ -526,7 +530,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       }
     } catch (e) {
       logger.e('녹화 시작 실패', error: e);
-      if (mounted) {
+      if (context.mounted) {
+        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('녹화 시작 실패: $e'),
@@ -548,7 +553,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         waitSeconds: 5,
       );
 
-      if (mounted) {
+      if (context.mounted) {
+        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -563,7 +569,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       }
     } catch (e) {
       logger.e('Zoom 실행 테스트 실패', error: e);
-      if (mounted) {
+      if (context.mounted) {
+        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Zoom 실행 실패: $e'),
@@ -626,8 +633,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     }
 
     try {
-      final now = DateTime.now();
-
       // 스케줄 이름 자동 생성
       final scheduleName = _scheduleType == ScheduleType.weekly
           ? '매주 ${['일', '월', '화', '수', '목', '금', '토'][_selectedDayOfWeek]}요일 $startTimeStr 녹화'
@@ -658,7 +663,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         _selectedDayOfWeek = 6; // 토요일로 초기화
       });
 
-      if (mounted) {
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('✅ 예약이 저장되었습니다: ${schedule.name}'),
@@ -675,7 +680,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
   }
 
   void _showError(String message) {
-    if (mounted) {
+    if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),

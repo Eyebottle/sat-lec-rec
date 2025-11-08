@@ -43,7 +43,7 @@ class AppElevation {
   /// Level 1 Shadow - 미세한 그림자
   static List<BoxShadow> get shadow1 => [
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.05),
+          color: AppColors.neutral900.withValues(alpha: 0.05),
           offset: const Offset(0, 1),
           blurRadius: 2,
           spreadRadius: 0,
@@ -53,13 +53,13 @@ class AppElevation {
   /// Level 2 Shadow - 표준 카드 그림자
   static List<BoxShadow> get shadow2 => [
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.08),
+          color: AppColors.neutral900.withValues(alpha: 0.08),
           offset: const Offset(0, 2),
           blurRadius: 4,
           spreadRadius: 0,
         ),
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.04),
+          color: AppColors.neutral900.withValues(alpha: 0.04),
           offset: const Offset(0, 1),
           blurRadius: 2,
           spreadRadius: 0,
@@ -69,13 +69,13 @@ class AppElevation {
   /// Level 3 Shadow - 부상한 요소 그림자
   static List<BoxShadow> get shadow3 => [
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.1),
+          color: AppColors.neutral900.withValues(alpha: 0.1),
           offset: const Offset(0, 4),
           blurRadius: 8,
           spreadRadius: 0,
         ),
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.06),
+          color: AppColors.neutral900.withValues(alpha: 0.06),
           offset: const Offset(0, 2),
           blurRadius: 4,
           spreadRadius: 0,
@@ -85,13 +85,13 @@ class AppElevation {
   /// Level 4 Shadow - 모달/다이얼로그 그림자
   static List<BoxShadow> get shadow4 => [
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.12),
+          color: AppColors.neutral900.withValues(alpha: 0.12),
           offset: const Offset(0, 6),
           blurRadius: 12,
           spreadRadius: 0,
         ),
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.08),
+          color: AppColors.neutral900.withValues(alpha: 0.08),
           offset: const Offset(0, 3),
           blurRadius: 6,
           spreadRadius: 0,
@@ -101,13 +101,13 @@ class AppElevation {
   /// Level 5 Shadow - 최상위 오버레이 그림자
   static List<BoxShadow> get shadow5 => [
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.15),
+          color: AppColors.neutral900.withValues(alpha: 0.15),
           offset: const Offset(0, 8),
           blurRadius: 16,
           spreadRadius: 0,
         ),
         BoxShadow(
-          color: AppColors.neutral900.withOpacity(0.1),
+          color: AppColors.neutral900.withValues(alpha: 0.1),
           offset: const Offset(0, 4),
           blurRadius: 8,
           spreadRadius: 0,
@@ -121,13 +121,13 @@ class AppElevation {
   /// Primary 색상의 부드러운 그림자 (강조 효과)
   static List<BoxShadow> get primaryShadow => [
         BoxShadow(
-          color: AppColors.primary.withOpacity(0.15),
+          color: AppColors.primary.withValues(alpha: 0.15),
           offset: const Offset(0, 4),
           blurRadius: 12,
           spreadRadius: 0,
         ),
         BoxShadow(
-          color: AppColors.primary.withOpacity(0.1),
+          color: AppColors.primary.withValues(alpha: 0.1),
           offset: const Offset(0, 2),
           blurRadius: 6,
           spreadRadius: 0,
@@ -137,13 +137,13 @@ class AppElevation {
   /// Primary 색상의 강한 그림자 (호버/활성 상태)
   static List<BoxShadow> get primaryShadowStrong => [
         BoxShadow(
-          color: AppColors.primary.withOpacity(0.25),
+          color: AppColors.primary.withValues(alpha: 0.25),
           offset: const Offset(0, 6),
           blurRadius: 16,
           spreadRadius: 0,
         ),
         BoxShadow(
-          color: AppColors.primary.withOpacity(0.15),
+          color: AppColors.primary.withValues(alpha: 0.15),
           offset: const Offset(0, 3),
           blurRadius: 8,
           spreadRadius: 0,
@@ -157,7 +157,7 @@ class AppElevation {
   /// Success 상태 그림자 (녹색)
   static List<BoxShadow> get successShadow => [
         BoxShadow(
-          color: AppColors.success.withOpacity(0.15),
+          color: AppColors.success.withValues(alpha: 0.15),
           offset: const Offset(0, 4),
           blurRadius: 12,
           spreadRadius: 0,
@@ -167,7 +167,7 @@ class AppElevation {
   /// Warning 상태 그림자 (노란색)
   static List<BoxShadow> get warningShadow => [
         BoxShadow(
-          color: AppColors.warning.withOpacity(0.15),
+          color: AppColors.warning.withValues(alpha: 0.15),
           offset: const Offset(0, 4),
           blurRadius: 12,
           spreadRadius: 0,
@@ -177,7 +177,7 @@ class AppElevation {
   /// Error 상태 그림자 (빨간색)
   static List<BoxShadow> get errorShadow => [
         BoxShadow(
-          color: AppColors.error.withOpacity(0.15),
+          color: AppColors.error.withValues(alpha: 0.15),
           offset: const Offset(0, 4),
           blurRadius: 12,
           spreadRadius: 0,
@@ -216,7 +216,7 @@ class AppElevation {
   }) {
     return [
       BoxShadow(
-        color: color.withOpacity(opacity),
+        color: color.withValues(alpha: opacity),
         offset: offset,
         blurRadius: blurRadius,
         spreadRadius: spreadRadius,

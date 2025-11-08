@@ -62,6 +62,9 @@ dependencies:
   # Google Fonts - 폰트 자동 다운로드 및 적용
   google_fonts: ^6.2.1
 
+  # Windows toast notifications
+  win_toast: ^0.4.0
+
   # UUID generation (Phase 3.2.1) - system_tray와 호환되는 버전
   uuid: ^3.0.7
 

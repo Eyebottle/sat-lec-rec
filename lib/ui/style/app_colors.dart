@@ -58,7 +58,7 @@ class AppColors {
   static const Color success = Color(0xFF2E7D32);
 
   /// 경고, 주의 필요
-  static const Color warning = Color(0xFFA000);
+  static const Color warning = Color(0xFFFFA000);
 
   /// 오류, 위험
   static const Color error = Color(0xFFD32F2F);
@@ -126,7 +126,7 @@ class AppColors {
 
   /// Primary 색상의 다양한 opacity 변형을 제공
   static Color primaryWithOpacity(double opacity) {
-    return primary.withOpacity(opacity);
+    return primary.withValues(alpha: opacity);
   }
 
   /// 진단 상태에 따른 색상 반환

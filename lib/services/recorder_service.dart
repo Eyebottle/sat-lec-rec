@@ -7,7 +7,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
 import 'package:ffi/ffi.dart';
 import '../ffi/native_bindings.dart';

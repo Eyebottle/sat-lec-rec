@@ -10,13 +10,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cron/cron.dart';
-import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/recording_schedule.dart'; // ScheduleType도 여기서 import됨
 import 'recorder_service.dart';
-import 'health_check_service.dart';  // Phase 3.2.2
-import 'zoom_launcher_service.dart';  // Phase 3.3.1
+import 'health_check_service.dart'; // Phase 3.2.2
+import 'tray_service.dart'; // Phase 4 알림 연동
+import 'zoom_launcher_service.dart'; // Phase 3.3.1
 
 /// 스케줄 관리 서비스 (싱글톤)
 class ScheduleService {
@@ -44,6 +44,9 @@ class ScheduleService {
 
   /// ZoomLauncherService 참조 - Phase 3.3.1
   final ZoomLauncherService _zoomLauncherService = ZoomLauncherService();
+
+  /// TrayService 참조 - Phase 4
+  final TrayService _trayService = TrayService();
 
   /// SharedPreferences 키
   static const String _schedulesPrefKey = 'recording_schedules';
@@ -191,7 +194,9 @@ class ScheduleService {
       final updatedSchedule = schedule.copyWith(isEnabled: !schedule.isEnabled);
 
       await updateSchedule(updatedSchedule);
-      _logger.i('✅ 스케줄 토글 완료: ${updatedSchedule.name} (${updatedSchedule.isEnabled ? "활성화" : "비활성화"})');
+      _logger.i(
+        '✅ 스케줄 토글 완료: ${updatedSchedule.name} (${updatedSchedule.isEnabled ? "활성화" : "비활성화"})',
+      );
     } catch (e, stackTrace) {
       _logger.e('❌ 스케줄 토글 실패', error: e, stackTrace: stackTrace);
       rethrow;
@@ -217,9 +222,15 @@ class ScheduleService {
       _scheduleHealthCheck(schedule);
 
       final nextExecution = schedule.getNextExecutionTime();
-      _logger.i('⏰ Cron 작업 등록: ${schedule.name} (${schedule.cronExpression}) - 다음 실행: $nextExecution');
+      _logger.i(
+        '⏰ Cron 작업 등록: ${schedule.name} (${schedule.cronExpression}) - 다음 실행: $nextExecution',
+      );
     } catch (e, stackTrace) {
-      _logger.e('❌ Cron 작업 등록 실패: ${schedule.name}', error: e, stackTrace: stackTrace);
+      _logger.e(
+        '❌ Cron 작업 등록 실패: ${schedule.name}',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -255,16 +266,39 @@ class ScheduleService {
     _logger.i('🎬 예약 녹화 시작: ${schedule.name}');
 
     try {
-      // Phase 3.3.1: Zoom 자동 실행
-      _logger.i('🚀 Zoom 회의 실행 중...');
-      final zoomLaunched = await _zoomLauncherService.launchZoomMeeting(
+      // Phase 3.3.1~3.3.3: Zoom 자동 실행 + UI Automation
+      _logger.i('🤖 Zoom 자동 진입 시도 중...');
+      final autoJoined = await _zoomLauncherService.autoJoinZoomMeeting(
         zoomLink: schedule.zoomLink,
-        waitSeconds: 15,  // 15초 대기 (Zoom 앱 실행 + 회의 참가)
+        userName: 'sat-lec-rec 자동 녹화',
+        initialWaitSeconds: 5,
       );
 
-      if (!zoomLaunched) {
-        _logger.w('⚠️ Zoom 실행 실패 - 녹화는 계속 진행');
-        // Zoom 실패해도 녹화는 진행 (수동으로 참가할 수 있음)
+      bool waitingRoomCleared = false;
+      bool hostHasStarted = false;
+
+      if (autoJoined) {
+        waitingRoomCleared = await _zoomLauncherService
+            .waitForWaitingRoomClear();
+        if (waitingRoomCleared) {
+          hostHasStarted = await _zoomLauncherService.waitForHostToStart();
+        }
+      } else {
+        _logger.w('⚠️ Zoom 자동 진입 실패 - 화면을 한 번 확인해 주세요');
+      }
+
+      if (!waitingRoomCleared) {
+        _logger.w('⚠️ 대기실 통과를 확인하지 못했습니다. Zoom 창 상태를 확인하세요.');
+        _zoomLauncherService.markAutomationFailure(
+          '대기실 승인 여부를 확인하지 못했습니다. Zoom 창을 확인하세요.',
+        );
+      }
+
+      if (!hostHasStarted) {
+        _logger.w('⚠️ 호스트 시작을 감지하지 못했습니다. 회의 상태를 모니터링하세요.');
+        _zoomLauncherService.markAutomationFailure(
+          '호스트가 회의를 시작하지 않아 자동 녹화를 진행할 수 없습니다.',
+        );
       }
 
       // RecorderService를 통해 녹화 시작
@@ -277,7 +311,9 @@ class ScheduleService {
       // 1회성 예약은 실행 후 자동으로 비활성화
       final updatedSchedule = schedule.copyWith(
         lastExecutedAt: DateTime.now(),
-        isEnabled: schedule.type == ScheduleType.oneTime ? false : schedule.isEnabled,
+        isEnabled: schedule.type == ScheduleType.oneTime
+            ? false
+            : schedule.isEnabled,
       );
       await updateSchedule(updatedSchedule);
 
@@ -286,6 +322,11 @@ class ScheduleService {
       }
 
       _logger.i('✅ 예약 녹화 시작 완료: $outputPath');
+      _zoomLauncherService.markRecordingReady();
+      await _trayService.showNotification(
+        title: '녹화 시작',
+        message: '${schedule.name} 녹화를 ${schedule.durationMinutes}분 동안 진행합니다.',
+      );
 
       // Phase 3.3.1: 녹화 종료 후 Zoom 종료 예약
       final recordingDuration = Duration(minutes: schedule.durationMinutes);
@@ -294,7 +335,18 @@ class ScheduleService {
         await _zoomLauncherService.closeZoomMeeting();
       });
     } catch (e, stackTrace) {
-      _logger.e('❌ 예약 녹화 시작 실패: ${schedule.name}', error: e, stackTrace: stackTrace);
+      _logger.e(
+        '❌ 예약 녹화 시작 실패: ${schedule.name}',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      await _trayService.showNotification(
+        title: '녹화 실패',
+        message: '${schedule.name} 예약을 시작하지 못했습니다. 로그를 확인해 주세요.',
+      );
+      _zoomLauncherService.markAutomationFailure(
+        '예약 녹화를 시작하는 과정에서 오류가 발생했습니다.',
+      );
 
       // TODO: Phase 3.2.2에서 사용자 알림 추가
       // - 시스템 트레이 알림
@@ -319,7 +371,9 @@ class ScheduleService {
       final healthCheckTime = timeUntilExecution - const Duration(minutes: 10);
 
       if (healthCheckTime.isNegative || healthCheckTime.inMinutes < 1) {
-        _logger.w('⚠️ 헬스체크 시간 부족 (${healthCheckTime.inMinutes}분): ${schedule.name}');
+        _logger.w(
+          '⚠️ 헬스체크 시간 부족 (${healthCheckTime.inMinutes}분): ${schedule.name}',
+        );
         return;
       }
 
@@ -329,9 +383,15 @@ class ScheduleService {
       });
 
       _healthCheckTimers[schedule.id] = timer;
-      _logger.i('🏥 헬스체크 예약: ${schedule.name} - ${healthCheckTime.inMinutes}분 후 실행');
+      _logger.i(
+        '🏥 헬스체크 예약: ${schedule.name} - ${healthCheckTime.inMinutes}분 후 실행',
+      );
     } catch (e, stackTrace) {
-      _logger.e('❌ 헬스체크 예약 실패: ${schedule.name}', error: e, stackTrace: stackTrace);
+      _logger.e(
+        '❌ 헬스체크 예약 실패: ${schedule.name}',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -360,7 +420,11 @@ class ScheduleService {
         _logger.i('✅ 헬스체크 통과 - 녹화 준비 완료');
       }
     } catch (e, stackTrace) {
-      _logger.e('❌ 헬스체크 수행 실패: ${schedule.name}', error: e, stackTrace: stackTrace);
+      _logger.e(
+        '❌ 헬스체크 수행 실패: ${schedule.name}',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -423,7 +487,9 @@ class ScheduleService {
     }).toList();
 
     // 가장 빠른 실행 시각 찾기
-    schedulesWithNext.sort((a, b) => a.nextExecution.compareTo(b.nextExecution));
+    schedulesWithNext.sort(
+      (a, b) => a.nextExecution.compareTo(b.nextExecution),
+    );
 
     return schedulesWithNext.first;
   }

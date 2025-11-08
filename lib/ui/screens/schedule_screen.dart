@@ -105,13 +105,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             Icon(
               Icons.calendar_month,
               size: 64,
-              color: Theme.of(context).colorScheme.secondary.withOpacity(0.3),
+              color: Theme.of(context).colorScheme.secondary.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 16),
             Text(
               '등록된 스케줄이 없습니다',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
                   ),
             ),
             const SizedBox(height: 8),
@@ -151,7 +151,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 4),
-            Text('${schedule.dayOfWeekName} ${schedule.startTimeFormatted} (${schedule.durationMinutes}분)'),
+            Text('${schedule.scheduleDisplayName} ${schedule.startTimeFormatted} (${schedule.durationMinutes}분)'),
             const SizedBox(height: 2),
             if (schedule.isEnabled)
               Text(
@@ -329,6 +329,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 final schedule = RecordingSchedule(
                   id: existingSchedule?.id ?? const Uuid().v4(),
                   name: nameController.text.trim(),
+                  type: ScheduleType.weekly, // 매주 반복 스케줄
                   dayOfWeek: selectedDayOfWeek,
                   startTime: selectedTime,
                   durationMinutes: durationMinutes,
@@ -344,7 +345,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     await _scheduleService.addSchedule(schedule);
                   }
 
-                  if (mounted) {
+                  if (context.mounted) {
                     Navigator.pop(context);
                     setState(() {});
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -352,7 +353,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     );
                   }
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('오류 발생: $e')),
                     );
@@ -382,7 +383,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           ElevatedButton(
             onPressed: () async {
               await _scheduleService.deleteSchedule(schedule.id);
-              if (mounted) {
+              if (context.mounted) {
                 Navigator.pop(context);
                 setState(() {});
                 ScaffoldMessenger.of(context).showSnackBar(

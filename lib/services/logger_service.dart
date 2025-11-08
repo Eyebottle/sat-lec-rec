@@ -57,7 +57,7 @@ class LoggerService {
           lineLength: 120,
           colors: true,
           printEmojis: true,
-          printTime: true,
+          dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
         ),
         output: MultiOutput([
           ConsoleOutput(),
@@ -127,10 +127,11 @@ class LoggerService {
       }
 
       if (deletedCount > 0) {
-        print('🗑️ 오래된 로그 파일 $deletedCount개 삭제됨');
+        // Logger 초기화 전이므로 stderr 사용
+        stderr.writeln('🗑️ 오래된 로그 파일 $deletedCount개 삭제됨');
       }
     } catch (e) {
-      print('⚠️ 로그 파일 정리 실패: $e');
+      stderr.writeln('⚠️ 로그 파일 정리 실패: $e');
     }
   }
 
@@ -146,7 +147,7 @@ class LoggerService {
         }
       }
     } catch (e) {
-      print('⚠️ 로그 파일 크기 확인 실패: $e');
+      stderr.writeln('⚠️ 로그 파일 크기 확인 실패: $e');
     }
   }
 
@@ -186,20 +187,22 @@ class LoggerService {
 /// 로그 파일 출력 (로테이션 지원)
 class _RotatingFileOutput extends LogOutput {
   final File file;
-  IOSink? _sink;
 
-  _RotatingFileOutput(this.file) {
-    _sink = file.openWrite(mode: FileMode.append);
-  }
+  _RotatingFileOutput(this.file);
 
   @override
   void output(OutputEvent event) {
-    if (_sink == null) return;
-
     try {
-      _sink!.writeAll(event.lines, '\n');
-      _sink!.writeln();
-      _sink!.flush();
+      // 매 로그마다 파일을 열고 닫아서 StreamSink 충돌 방지
+      final sink = file.openWrite(mode: FileMode.append);
+
+      for (final line in event.lines) {
+        sink.writeln(line);
+      }
+      sink.writeln();
+
+      // 동기적으로 닫기
+      sink.close();
 
       // 파일 크기 확인 (10MB마다)
       final fileSize = file.lengthSync();
@@ -207,14 +210,14 @@ class _RotatingFileOutput extends LogOutput {
         LoggerService.instance.rotateLogIfNeeded();
       }
     } catch (e) {
-      print('⚠️ 로그 파일 쓰기 실패: $e');
+      // 로그 실패 시 stderr 사용 (무한 재귀 방지)
+      stderr.writeln('⚠️ 로그 파일 쓰기 실패: $e');
     }
   }
 
   @override
   Future<void> destroy() async {
-    await _sink?.close();
-    _sink = null;
+    // 더 이상 유지할 sink가 없음
   }
 }
 

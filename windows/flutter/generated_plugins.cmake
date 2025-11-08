@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   screen_retriever_windows
   system_tray
+  win_toast
   window_manager
 )
 

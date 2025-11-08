@@ -14,10 +14,8 @@ class AppTheme {
       secondary: AppColors.primaryLight,
       error: AppColors.error,
       surface: AppColors.surface,
-      background: AppColors.background,
       onPrimary: AppColors.textOnPrimary,
       onSurface: AppColors.textPrimary,
-      onBackground: AppColors.textPrimary,
       brightness: Brightness.light,
     );
 
@@ -190,7 +188,7 @@ class AppTheme {
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return AppColors.primaryLight.withOpacity(0.5);
+            return AppColors.primaryLight.withValues(alpha: 0.5);
           }
           return AppColors.neutral200;
         }),

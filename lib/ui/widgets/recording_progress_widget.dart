@@ -141,7 +141,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
     final progress = _progress!;
 
     return AppCard.level2(
-      color: AppColors.recordingActive.withOpacity(0.1),
+      color: AppColors.recordingActive.withValues(alpha: 0.1),
       child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -157,7 +157,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.recordingActive.withOpacity(0.5),
+                        color: AppColors.recordingActive.withValues(alpha: 0.5),
                         blurRadius: 8,
                         spreadRadius: 2,
                       ),
@@ -230,7 +230,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
         Text(
           label,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSecondaryContainer.withOpacity(0.7),
+                color: Theme.of(context).colorScheme.onSecondaryContainer.withValues(alpha: 0.7),
               ),
         ),
         const SizedBox(height: 2),
@@ -294,7 +294,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
             Text(
               '오디오 레벨',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSecondaryContainer.withOpacity(0.7),
+                    color: Theme.of(context).colorScheme.onSecondaryContainer.withValues(alpha: 0.7),
                   ),
             ),
             const Spacer(),
@@ -314,7 +314,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
           child: Container(
             height: 8,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSecondaryContainer.withOpacity(0.1),
+              color: Theme.of(context).colorScheme.onSecondaryContainer.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
             ),
             child: FractionallySizedBox(
@@ -326,7 +326,7 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
                   borderRadius: BorderRadius.circular(4),
                   boxShadow: [
                     BoxShadow(
-                      color: levelColor.withOpacity(0.5),
+                      color: levelColor.withValues(alpha: 0.5),
                       blurRadius: 4,
                       spreadRadius: 1,
                     ),

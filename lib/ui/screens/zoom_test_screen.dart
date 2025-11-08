@@ -95,11 +95,54 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      '1. 실제 Zoom 회의 링크를 입력하세요\n'
-                      '2. "Zoom 링크 실행" 버튼으로 Zoom 앱을 실행합니다\n'
-                      '3. 각 기능 버튼을 눌러 자동화를 테스트합니다\n'
-                      '4. Zoom 창에서 실제로 버튼이 클릭되는지 확인하세요',
-                      style: TextStyle(fontSize: 14, height: 1.5),
+                      '💡 가장 안전한 방법: Personal Meeting Room (PMI) 사용\n'
+                      '• Zoom 웹사이트(zoom.us/profile)에서 개인 회의 ID 확인\n'
+                      '• 링크 형식: https://zoom.us/j/당신의PMI번호\n'
+                      '• 언제든 접속 가능한 고정 회의실입니다\n\n'
+                      '1. 위 링크를 입력하거나 실제 Zoom 회의 링크 입력\n'
+                      '2. "Zoom 링크 실행" 버튼으로 Zoom 앱 실행\n'
+                      '3. 각 기능 버튼을 눌러 자동화 테스트\n'
+                      '4. Zoom 창에서 실제로 버튼이 클릭되는지 확인',
+                      style: TextStyle(fontSize: 13, height: 1.5),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        // PMI 안내 다이얼로그
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('💡 PMI 찾는 방법'),
+                            content: const SingleChildScrollView(
+                              child: Text(
+                                '방법 1: Zoom 웹사이트\n'
+                                '1. zoom.us/profile 접속\n'
+                                '2. 로그인\n'
+                                '3. "개인 회의 ID" 섹션에서 확인\n\n'
+                                '방법 2: Zoom 앱\n'
+                                '1. Zoom 앱 실행\n'
+                                '2. 설정(⚙️) → 프로필\n'
+                                '3. "개인 회의 ID (PMI)" 확인\n\n'
+                                '예시 링크:\n'
+                                'https://zoom.us/j/1234567890',
+                                style: TextStyle(height: 1.5),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('닫기'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.help_outline),
+                      label: const Text('PMI 찾는 방법 보기'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade100,
+                        foregroundColor: Colors.blue.shade700,
+                      ),
                     ),
                   ],
                 ),
