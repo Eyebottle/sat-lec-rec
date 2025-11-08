@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../../models/app_settings.dart';
 import '../../services/settings_service.dart';
+import '../widgets/common/slider_with_input.dart';
 
 /// 설정 화면
 class SettingsScreen extends StatefulWidget {
@@ -386,12 +387,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // FPS
             Text('FPS (프레임 레이트)', style: Theme.of(context).textTheme.titleSmall),
-            Slider(
+            const SizedBox(height: 8),
+            SliderWithInput(
               value: _settings.videoFps.toDouble(),
               min: 15,
               max: 60,
               divisions: 9,
-              label: '${_settings.videoFps} fps',
+              suffix: 'fps',
               onChanged: (value) {
                 setState(() {
                   _settings = _settings.copyWith(videoFps: value.toInt());
@@ -399,18 +401,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 });
               },
             ),
-            Text('${_settings.videoFps} fps', style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 16),
 
             // CRF (품질)
             Text('비디오 품질 (CRF)', style: Theme.of(context).textTheme.titleSmall),
             const Text('낮을수록 고품질 (파일 크기 증가)', style: TextStyle(fontSize: 12)),
-            Slider(
+            const SizedBox(height: 8),
+            SliderWithInput(
               value: _settings.h264Crf.toDouble(),
               min: 18,
               max: 35,
               divisions: 17,
-              label: 'CRF ${_settings.h264Crf}',
               onChanged: (value) {
                 setState(() {
                   _settings = _settings.copyWith(h264Crf: value.toInt());
@@ -418,7 +419,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 });
               },
             ),
-            Text('CRF ${_settings.h264Crf}', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
       ),
@@ -549,12 +549,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (_settings.enableAutoZoomLaunch) ...[
               const Divider(),
               Text('Zoom 실행 후 대기 시간', style: Theme.of(context).textTheme.titleSmall),
-              Slider(
+              const SizedBox(height: 8),
+              SliderWithInput(
                 value: _settings.zoomLaunchWaitSeconds.toDouble(),
                 min: 5,
                 max: 30,
                 divisions: 5,
-                label: '${_settings.zoomLaunchWaitSeconds}초',
+                suffix: '초',
                 onChanged: (value) {
                   setState(() {
                     _settings = _settings.copyWith(zoomLaunchWaitSeconds: value.toInt());
@@ -562,7 +563,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   });
                 },
               ),
-              Text('${_settings.zoomLaunchWaitSeconds}초', style: Theme.of(context).textTheme.bodySmall),
 
               const Divider(),
               SwitchListTile(
