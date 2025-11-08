@@ -161,73 +161,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('설정'),
-        actions: [
-          // 강의 녹화 추천 설정 버튼
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-            decoration: BoxDecoration(
-              color: Colors.green,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _applyRecommendedSettings,
+    return DefaultTabController(
+      length: 4, // 4개 탭: 비디오, 오디오, Zoom, 고급
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('설정'),
+          actions: [
+            // 강의 녹화 추천 설정 버튼
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+              decoration: BoxDecoration(
+                color: Colors.green,
                 borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.school, color: Colors.white, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        '강의 추천',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _applyRecommendedSettings,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.school, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          '강의 추천',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
+            IconButton(
+              icon: const Icon(Icons.restore),
+              tooltip: '기본값으로 초기화',
+              onPressed: _resetSettings,
+            ),
+          ],
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.videocam), text: '비디오'),
+              Tab(icon: Icon(Icons.audiotrack), text: '오디오'),
+              Tab(icon: Icon(Icons.video_call), text: 'Zoom'),
+              Tab(icon: Icon(Icons.settings_applications), text: '고급'),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.restore),
-            tooltip: '기본값으로 초기화',
-            onPressed: _resetSettings,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // 스크롤 가능한 설정 영역
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        body: Column(
+          children: [
+            // TabBarView 영역
+            Expanded(
+              child: TabBarView(
                 children: [
-                  _buildVideoSettingsCard(),
-                  const SizedBox(height: 16),
-                  _buildAudioSettingsCard(),
-                  const SizedBox(height: 16),
-                  _buildZoomSettingsCard(),
-                  const SizedBox(height: 16),
-                  _buildZoomApiSettingsCard(),
-                  const SizedBox(height: 16),
-                  _buildOtherSettingsCard(),
-                  const SizedBox(height: 80), // 하단 버튼 공간 확보
+                  // 비디오 탭
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: _buildVideoSettingsCard(),
+                  ),
+                  // 오디오 탭
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: _buildAudioSettingsCard(),
+                  ),
+                  // Zoom 탭
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: _buildZoomSettingsCard(),
+                  ),
+                  // 고급 탭
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        _buildZoomApiSettingsCard(),
+                        const SizedBox(height: 16),
+                        _buildOtherSettingsCard(),
+                        const SizedBox(height: 80), // 하단 버튼 공간 확보
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
 
           // 하단 고정 버튼 영역
           Container(
@@ -329,6 +352,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }
