@@ -6,6 +6,8 @@
 // - 저장 경로 설정
 // - 기타 앱 동작 설정
 
+import 'zoom_api_config.dart';
+
 /// 앱 설정 데이터 클래스
 class AppSettings {
   /// 비디오 해상도 너비
@@ -50,6 +52,15 @@ class AppSettings {
   /// 시작 시 자동 실행 여부
   final bool launchAtStartup;
 
+  /// Zoom API Account ID (Server-to-Server OAuth)
+  final String? zoomApiAccountId;
+
+  /// Zoom API Client ID (Server-to-Server OAuth)
+  final String? zoomApiClientId;
+
+  /// Zoom API Client Secret (Server-to-Server OAuth)
+  final String? zoomApiClientSecret;
+
   AppSettings({
     this.videoWidth = 1920,
     this.videoHeight = 1080,
@@ -65,6 +76,9 @@ class AppSettings {
     this.zoomLaunchWaitSeconds = 15,
     this.autoCloseZoomAfterRecording = true,
     this.launchAtStartup = false,
+    this.zoomApiAccountId,
+    this.zoomApiClientId,
+    this.zoomApiClientSecret,
   });
 
   /// 기본 설정
@@ -87,6 +101,9 @@ class AppSettings {
       'zoomLaunchWaitSeconds': zoomLaunchWaitSeconds,
       'autoCloseZoomAfterRecording': autoCloseZoomAfterRecording,
       'launchAtStartup': launchAtStartup,
+      'zoomApiAccountId': zoomApiAccountId,
+      'zoomApiClientId': zoomApiClientId,
+      'zoomApiClientSecret': zoomApiClientSecret,
     };
   }
 
@@ -107,6 +124,9 @@ class AppSettings {
       zoomLaunchWaitSeconds: json['zoomLaunchWaitSeconds'] as int? ?? 15,
       autoCloseZoomAfterRecording: json['autoCloseZoomAfterRecording'] as bool? ?? true,
       launchAtStartup: json['launchAtStartup'] as bool? ?? false,
+      zoomApiAccountId: json['zoomApiAccountId'] as String?,
+      zoomApiClientId: json['zoomApiClientId'] as String?,
+      zoomApiClientSecret: json['zoomApiClientSecret'] as String?,
     );
   }
 
@@ -126,6 +146,9 @@ class AppSettings {
     int? zoomLaunchWaitSeconds,
     bool? autoCloseZoomAfterRecording,
     bool? launchAtStartup,
+    String? zoomApiAccountId,
+    String? zoomApiClientId,
+    String? zoomApiClientSecret,
   }) {
     return AppSettings(
       videoWidth: videoWidth ?? this.videoWidth,
@@ -142,6 +165,22 @@ class AppSettings {
       zoomLaunchWaitSeconds: zoomLaunchWaitSeconds ?? this.zoomLaunchWaitSeconds,
       autoCloseZoomAfterRecording: autoCloseZoomAfterRecording ?? this.autoCloseZoomAfterRecording,
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,
+      zoomApiAccountId: zoomApiAccountId ?? this.zoomApiAccountId,
+      zoomApiClientId: zoomApiClientId ?? this.zoomApiClientId,
+      zoomApiClientSecret: zoomApiClientSecret ?? this.zoomApiClientSecret,
+    );
+  }
+
+  /// Zoom API 설정 객체 생성
+  ///
+  /// ZoomApiConfig 객체로 변환합니다.
+  /// 입력: 없음
+  /// 출력: ZoomApiConfig 객체 (설정되지 않았으면 빈 객체)
+  ZoomApiConfig toZoomApiConfig() {
+    return ZoomApiConfig(
+      accountId: zoomApiAccountId ?? '',
+      clientId: zoomApiClientId ?? '',
+      clientSecret: zoomApiClientSecret ?? '',
     );
   }
 

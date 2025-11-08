@@ -68,6 +68,12 @@ dependencies:
   # UUID generation (Phase 3.2.1) - system_tray와 호환되는 버전
   uuid: ^3.0.7
 
+  # HTTP client for Zoom API
+  http: ^1.2.0
+
+  # JWT for Zoom Server-to-Server OAuth
+  dart_jsonwebtoken: ^2.14.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/zoom_launcher_service.dart';
+import '../../services/zoom_api_service.dart';
+import '../../services/settings_service.dart';
 import '../../models/zoom_automation_state.dart';
 
 /// Zoom 자동화 테스트 화면
@@ -18,6 +20,9 @@ class ZoomTestScreen extends StatefulWidget {
 
 class _ZoomTestScreenState extends State<ZoomTestScreen> {
   final ZoomLauncherService _zoomService = ZoomLauncherService();
+  final ZoomApiService _zoomApiService = ZoomApiService();
+  final SettingsService _settingsService = SettingsService();
+
   final TextEditingController _zoomLinkController = TextEditingController(
     text: 'https://zoom.us/j/123456789',
   );
@@ -27,6 +32,15 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
 
   String _lastResult = '대기 중...';
   bool _isProcessing = false;
+  String? _currentMeetingId; // 생성된 테스트 회의 ID
+
+  @override
+  void initState() {
+    super.initState();
+    // Zoom API 설정 로드
+    final apiConfig = _settingsService.settings.toZoomApiConfig();
+    _zoomApiService.configure(apiConfig);
+  }
 
   @override
   void dispose() {
@@ -51,6 +65,85 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
     } catch (e) {
       setState(() {
         _lastResult = '❌ $testName 예외 발생: $e';
+      });
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  /// 자동 테스트 회의 생성
+  Future<void> _createTestMeeting() async {
+    if (!_zoomApiService.isConfigured) {
+      setState(() {
+        _lastResult = '❌ Zoom API가 설정되지 않았습니다. 설정 화면에서 API 정보를 입력하세요.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _lastResult = '🔧 테스트 회의 생성 중...';
+    });
+
+    try {
+      final meeting = await _zoomApiService.createTestMeeting();
+
+      if (meeting != null) {
+        setState(() {
+          _currentMeetingId = meeting.id;
+          _zoomLinkController.text = meeting.joinUrl;
+          _lastResult = '✅ 테스트 회의 생성 성공!\n'
+              '회의 ID: ${meeting.id}\n'
+              '참가 링크: ${meeting.joinUrl}';
+        });
+      } else {
+        setState(() {
+          _lastResult = '❌ 테스트 회의 생성 실패. API 설정을 확인하세요.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _lastResult = '❌ 테스트 회의 생성 예외: $e';
+      });
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
+  /// 테스트 회의 삭제
+  Future<void> _deleteTestMeeting() async {
+    if (_currentMeetingId == null) {
+      setState(() {
+        _lastResult = '⚠️ 삭제할 회의가 없습니다.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _lastResult = '🗑️ 테스트 회의 삭제 중...';
+    });
+
+    try {
+      final success = await _zoomApiService.deleteMeeting(_currentMeetingId!);
+
+      if (success) {
+        setState(() {
+          _lastResult = '✅ 테스트 회의 삭제 성공!';
+          _currentMeetingId = null;
+        });
+      } else {
+        setState(() {
+          _lastResult = '❌ 테스트 회의 삭제 실패.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _lastResult = '❌ 테스트 회의 삭제 예외: $e';
       });
     } finally {
       setState(() {
@@ -150,6 +243,94 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
             ),
 
             const SizedBox(height: 24),
+
+            // Zoom API 자동 회의 생성 섹션
+            if (_zoomApiService.isConfigured) ...[
+              Card(
+                color: Colors.purple.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.auto_awesome, color: Colors.purple.shade700),
+                          const SizedBox(width: 8),
+                          Text(
+                            '🤖 자동 테스트 회의',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Zoom API를 사용하여 테스트용 회의를 자동으로 생성/삭제합니다.\n'
+                        '실제 예약 강의를 사용하지 않아도 안전하게 테스트할 수 있습니다!',
+                        style: TextStyle(fontSize: 13, height: 1.5),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isProcessing ? null : _createTestMeeting,
+                              icon: const Icon(Icons.add_circle),
+                              label: const Text('테스트 회의 생성'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.purple,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                              ),
+                            ),
+                          ),
+                          if (_currentMeetingId != null) ...[
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _isProcessing ? null : _deleteTestMeeting,
+                                icon: const Icon(Icons.delete),
+                                label: const Text('회의 삭제'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red.shade700,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ] else ...[
+              Card(
+                color: Colors.orange.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber, color: Colors.orange.shade700),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Zoom API가 설정되지 않았습니다.\n설정 화면에서 API 정보를 입력하면 자동 회의 생성 기능을 사용할 수 있습니다.',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
 
             // Zoom 링크 입력
             TextField(

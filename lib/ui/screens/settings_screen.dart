@@ -218,6 +218,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 16),
                   _buildZoomSettingsCard(),
                   const SizedBox(height: 16),
+                  _buildZoomApiSettingsCard(),
+                  const SizedBox(height: 16),
                   _buildOtherSettingsCard(),
                   const SizedBox(height: 80), // 하단 버튼 공간 확보
                 ],
@@ -553,6 +555,157 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 },
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildZoomApiSettingsCard() {
+    final TextEditingController accountIdController = TextEditingController(
+      text: _settings.zoomApiAccountId ?? '',
+    );
+    final TextEditingController clientIdController = TextEditingController(
+      text: _settings.zoomApiClientId ?? '',
+    );
+    final TextEditingController clientSecretController = TextEditingController(
+      text: _settings.zoomApiClientSecret ?? '',
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.api, size: 24),
+                const SizedBox(width: 12),
+                Text(
+                  'Zoom API 설정',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '테스트용 Zoom 회의를 자동 생성하려면 Server-to-Server OAuth 앱이 필요합니다',
+                      style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Account ID
+            Text('Account ID', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            TextField(
+              controller: accountIdController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Zoom 계정 ID 입력',
+                prefixIcon: Icon(Icons.account_circle),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _settings = _settings.copyWith(zoomApiAccountId: value);
+                  _markChanged();
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Client ID
+            Text('Client ID', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            TextField(
+              controller: clientIdController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'OAuth 앱 Client ID 입력',
+                prefixIcon: Icon(Icons.vpn_key),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _settings = _settings.copyWith(zoomApiClientId: value);
+                  _markChanged();
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Client Secret
+            Text('Client Secret', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            TextField(
+              controller: clientSecretController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'OAuth 앱 Client Secret 입력',
+                prefixIcon: Icon(Icons.lock),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _settings = _settings.copyWith(zoomApiClientSecret: value);
+                  _markChanged();
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // 도움말 링크
+            OutlinedButton.icon(
+              onPressed: () {
+                // 도움말 다이얼로그 표시
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('📚 Zoom API 설정 방법'),
+                    content: const SingleChildScrollView(
+                      child: Text(
+                        '1. Zoom App Marketplace 접속\n'
+                        '   https://marketplace.zoom.us/\n\n'
+                        '2. "Develop" → "Build App" 클릭\n\n'
+                        '3. "Server-to-Server OAuth" 선택\n\n'
+                        '4. 앱 생성 후 다음 정보 복사:\n'
+                        '   • Account ID\n'
+                        '   • Client ID\n'
+                        '   • Client Secret\n\n'
+                        '5. Scopes 권한 추가:\n'
+                        '   • meeting:write:admin\n'
+                        '   • user:read:admin\n\n'
+                        '6. 활성화 후 위 정보를 입력하세요',
+                        style: TextStyle(height: 1.5),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('닫기'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              icon: const Icon(Icons.help_outline),
+              label: const Text('설정 방법 보기'),
+            ),
           ],
         ),
       ),
