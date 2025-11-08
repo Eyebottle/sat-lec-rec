@@ -529,8 +529,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // 테스트용 Zoom 링크 입력
             Text('테스트용 Zoom 링크 (선택사항)', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
-            TextField(
-              controller: TextEditingController(text: _settings.testZoomLink ?? ''),
+            TextFormField(
+              initialValue: _settings.testZoomLink ?? '',
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 hintText: 'https://zoom.us/j/당신의PMI번호',
@@ -538,6 +538,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 helperText: 'PMI 링크를 입력하면 테스트 버튼으로 빠르게 테스트할 수 있습니다',
                 helperMaxLines: 2,
               ),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return null; // 선택사항이므로 빈 값 허용
+                }
+                if (!value.contains('zoom.us')) {
+                  return 'Zoom 링크는 "zoom.us"를 포함해야 합니다';
+                }
+                if (!value.startsWith('http')) {
+                  return 'https:// 또는 http://로 시작해야 합니다';
+                }
+                return null;
+              },
               onChanged: (value) {
                 setState(() {
                   _settings = _settings.copyWith(testZoomLink: value);

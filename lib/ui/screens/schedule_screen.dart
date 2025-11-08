@@ -259,6 +259,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     final time = await showTimePicker(
                       context: context,
                       initialTime: selectedTime,
+                      initialEntryMode: TimePickerEntryMode.input,
                     );
                     if (time != null) {
                       setDialogState(() {
