@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../../models/app_settings.dart';
 import '../../services/settings_service.dart';
+import '../../utils/file_size_estimator.dart';
 import '../widgets/common/slider_with_input.dart';
 
 /// 설정 화면
@@ -419,8 +420,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 });
               },
             ),
+            const SizedBox(height: 20),
+
+            // 예상 파일 크기
+            const Divider(),
+            const SizedBox(height: 12),
+            _buildFileSizeEstimate(),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 예상 파일 크기 표시
+  Widget _buildFileSizeEstimate() {
+    // 1시간 기준 파일 크기 계산
+    final sizePerHour = FileSizeEstimator.estimatePerHour(
+      videoWidth: _settings.videoWidth,
+      videoHeight: _settings.videoHeight,
+      fps: _settings.videoFps,
+      crf: _settings.h264Crf,
+      audioBitrate: _settings.aacBitrate,
+    );
+
+    // 2시간 기준 계산 (일반적인 강의 시간)
+    final sizePer2Hours = FileSizeEstimator.estimateFileSize(
+      videoWidth: _settings.videoWidth,
+      videoHeight: _settings.videoHeight,
+      fps: _settings.videoFps,
+      crf: _settings.h264Crf,
+      audioBitrate: _settings.aacBitrate,
+      durationMinutes: 120,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.storage, color: Colors.blue.shade700, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                '예상 파일 크기',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '1시간 녹화 시:',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              Text(
+                FileSizeEstimator.formatFileSize(sizePerHour),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '2시간 녹화 시:',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              Text(
+                FileSizeEstimator.formatFileSize(sizePer2Hours),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '💡 CRF 값을 높이면 파일 크기가 줄어듭니다',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+          ),
+        ],
       ),
     );
   }
