@@ -11,6 +11,7 @@ import '../../models/recording_schedule.dart';
 import '../widgets/recording_progress_widget.dart';
 import '../widgets/common/app_button.dart';
 import '../widgets/common/app_card.dart';
+import '../widgets/common/countdown_timer.dart';
 import '../style/app_colors.dart';
 import '../style/app_typography.dart';
 import '../style/app_spacing.dart';
@@ -181,6 +182,10 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 다음 예약 히어로 카드
+            _buildNextScheduleHeroCard(),
+            const SizedBox(height: AppSpacing.md),
+
             // 녹화 예약 카드
             _buildScheduleInputCard(),
             const SizedBox(height: AppSpacing.md),
@@ -208,6 +213,152 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 다음 예약 히어로 카드
+  Widget _buildNextScheduleHeroCard() {
+    // 활성화된 스케줄 목록 가져오기
+    final schedules = _scheduleService.enabledSchedules;
+
+    if (schedules.isEmpty) {
+      // 예약이 없을 때는 카드 표시 안 함
+      return const SizedBox.shrink();
+    }
+
+    // 다음 예약 찾기 (가장 가까운 미래 시간)
+    RecordingSchedule? nextSchedule;
+    DateTime? nextTime;
+
+    for (final schedule in schedules) {
+      final execTime = schedule.getNextExecutionTime();
+      if (nextTime == null || execTime.isBefore(nextTime)) {
+        nextTime = execTime;
+        nextSchedule = schedule;
+      }
+    }
+
+    if (nextSchedule == null || nextTime == null) {
+      return const SizedBox.shrink();
+    }
+
+    final now = DateTime.now();
+    final isPast = nextTime.isBefore(now);
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: isPast
+            ? const LinearGradient(
+                colors: [Color(0xFFFF6B6B), Color(0xFFEE5A52)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : const LinearGradient(
+                colors: [Color(0xFF4158D0), Color(0xFFC850C0)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 제목
+          Row(
+            children: [
+              Icon(
+                isPast ? Icons.warning_amber : Icons.event_available,
+                color: Colors.white,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isPast ? '예약 시간이 지났습니다' : '다음 예약 강의',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 스케줄 이름
+          Text(
+            nextSchedule.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // 스케줄 정보
+          Row(
+            children: [
+              Icon(
+                Icons.calendar_today,
+                color: Colors.white.withValues(alpha: 0.9),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                nextSchedule.scheduleDisplayName,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Icon(
+                Icons.access_time,
+                color: Colors.white.withValues(alpha: 0.9),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                nextSchedule.startTimeFormatted,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Countdown Timer
+          Center(
+            child: CountdownTimer(
+              targetTime: nextTime,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2,
+              ),
+              onComplete: () {
+                // 타이머 종료 시 화면 새로고침
+                if (mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
