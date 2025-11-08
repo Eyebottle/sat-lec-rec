@@ -8,13 +8,13 @@
 // - 녹화 시작/종료 시 알림
 
 import 'dart:io';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:logger/logger.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:logger/logger.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as path;
+import 'package:win_toast/win_toast.dart';
 
 /// 시스템 트레이 관리 서비스 (싱글톤)
 class TrayService {
@@ -24,7 +24,8 @@ class TrayService {
 
   final Logger _logger = Logger();
   final SystemTray _systemTray = SystemTray();
-  final AppWindow _appWindow = AppWindow();
+  bool _toastInitialized = false;
+  String? _toastIconPath;
 
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
@@ -57,6 +58,7 @@ class TrayService {
         normalizedPath = iconPath.replaceAll('/', '\\');
         _logger.d('Windows 경로로 변환: $normalizedPath');
       }
+      _toastIconPath = normalizedPath;
 
       // Windows에서는 toolTip이 null이면 안 될 수 있음
       try {
@@ -71,6 +73,8 @@ class TrayService {
         _logger.d('원본 경로: $iconPath');
         rethrow;
       }
+
+      await _ensureToastInitialized();
 
       // 트레이 메뉴 생성
       await _buildTrayMenu();
@@ -153,39 +157,24 @@ class TrayService {
 
     // 앱 상태 표시 (비활성)
     await menu.buildFrom([
-      MenuItemLabel(
-        label: '📺 sat-lec-rec',
-        enabled: false,
-      ),
+      MenuItemLabel(label: '📺 sat-lec-rec', enabled: false),
       MenuSeparator(),
 
       // 창 열기
-      MenuItemLabel(
-        label: '열기',
-        onClicked: (menuItem) => _showWindow(),
-      ),
+      MenuItemLabel(label: '열기', onClicked: (menuItem) => _showWindow()),
 
       // 스케줄 관리 (TODO: 직접 스케줄 화면 열기)
-      MenuItemLabel(
-        label: '스케줄 관리',
-        onClicked: (menuItem) => _showWindow(),
-      ),
+      MenuItemLabel(label: '스케줄 관리', onClicked: (menuItem) => _showWindow()),
 
       MenuSeparator(),
 
       // 녹화 상태 (동적으로 업데이트 필요)
-      MenuItemLabel(
-        label: '상태: 대기 중',
-        enabled: false,
-      ),
+      MenuItemLabel(label: '상태: 대기 중', enabled: false),
 
       MenuSeparator(),
 
       // 종료
-      MenuItemLabel(
-        label: '종료',
-        onClicked: (menuItem) => _exitApp(),
-      ),
+      MenuItemLabel(label: '종료', onClicked: (menuItem) => _exitApp()),
     ]);
 
     await _systemTray.setContextMenu(menu);
@@ -224,10 +213,7 @@ class TrayService {
       _logger.d('🫥 창 숨김 (트레이로 최소화)');
 
       // 트레이 알림 (선택적)
-      await showNotification(
-        title: 'sat-lec-rec',
-        message: '백그라운드에서 실행 중입니다.',
-      );
+      await showNotification(title: 'sat-lec-rec', message: '백그라운드에서 실행 중입니다.');
     } catch (e) {
       _logger.e('❌ 창 숨김 실패', error: e);
     }
@@ -235,21 +221,74 @@ class TrayService {
 
   /// 트레이 알림 표시
   ///
-  /// @param title 알림 제목
-  /// @param message 알림 내용
+  /// 입력: [title]은 알림 제목, [message]는 내용, [duration]은 표시 시간
+  /// 출력: 없음 (Fire-and-forget)
+  /// 예외: WinToast 초기화나 토스트 표시 중 오류가 나면 내부 로거에 기록
   Future<void> showNotification({
     required String title,
     required String message,
+    ToastDuration duration = ToastDuration.short,
   }) async {
     try {
-      // system_tray 패키지는 직접 알림을 지원하지 않음
-      // Windows 10+ Toast 알림을 사용하려면 별도 패키지 필요
-      // 임시로 로그만 출력
-      _logger.i('📢 알림: $title - $message');
+      if (!Platform.isWindows) {
+        _logger.i('📢 알림(WSL): $title - $message');
+        return;
+      }
 
-      // TODO: Phase 4에서 win_toast 패키지 추가하여 실제 알림 구현
-    } catch (e) {
-      _logger.e('❌ 알림 표시 실패', error: e);
+      await _ensureToastInitialized();
+      if (!_toastInitialized) {
+        _logger.w('⚠️ WinToast 초기화 실패로 로그만 남깁니다');
+        _logger.i('📢 알림: $title - $message');
+        return;
+      }
+
+      final toast = Toast(
+        duration: duration,
+        children: [
+          ToastChildVisual(
+            binding: ToastVisualBinding(
+              children: [
+                ToastVisualBindingChildText(text: title, id: 1),
+                ToastVisualBindingChildText(text: message, id: 2),
+              ],
+            ),
+          ),
+          ToastChildAudio(source: ToastAudioSource.reminder),
+        ],
+      );
+
+      await WinToast.instance().showToast(toast: toast);
+      _logger.i('📢 알림: $title - $message');
+    } catch (e, stackTrace) {
+      _logger.e('❌ 알림 표시 실패', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  /// WinToast 초기화 (Windows 전용)
+  /// 입력: [iconPath]를 전달하면 해당 아이콘을 토스트에 사용
+  /// 출력: 없음
+  /// 예외: 초기화 실패 시 false로 표시하고 로그 남김
+  Future<void> _ensureToastInitialized({String? iconPath}) async {
+    if (!Platform.isWindows || _toastInitialized) {
+      return;
+    }
+
+    try {
+      final resolvedIcon = iconPath ?? _toastIconPath ?? '';
+      final initialized = await WinToast.instance().initialize(
+        aumId: 'kr.eyebottle.satlec',
+        displayName: 'sat-lec-rec',
+        iconPath: resolvedIcon,
+        clsid: 'B7C3D4E5-1A2B-4C5D-8E9F-0A1B2C3D4E5F',  // sat-lec-rec 프로젝트 전용 GUID
+      );
+
+      _toastInitialized = initialized;
+      if (!initialized) {
+        _logger.w('⚠️ WinToast 초기화 실패 (아이콘: $resolvedIcon)');
+      }
+    } catch (e, stackTrace) {
+      _toastInitialized = false;
+      _logger.e('❌ WinToast 초기화 예외', error: e, stackTrace: stackTrace);
     }
   }
 
@@ -262,21 +301,12 @@ class TrayService {
       final menu = Menu();
 
       await menu.buildFrom([
-        MenuItemLabel(
-          label: '📺 sat-lec-rec',
-          enabled: false,
-        ),
+        MenuItemLabel(label: '📺 sat-lec-rec', enabled: false),
         MenuSeparator(),
 
-        MenuItemLabel(
-          label: '열기',
-          onClicked: (menuItem) => _showWindow(),
-        ),
+        MenuItemLabel(label: '열기', onClicked: (menuItem) => _showWindow()),
 
-        MenuItemLabel(
-          label: '스케줄 관리',
-          onClicked: (menuItem) => _showWindow(),
-        ),
+        MenuItemLabel(label: '스케줄 관리', onClicked: (menuItem) => _showWindow()),
 
         MenuSeparator(),
 
@@ -288,10 +318,7 @@ class TrayService {
 
         MenuSeparator(),
 
-        MenuItemLabel(
-          label: '종료',
-          onClicked: (menuItem) => _exitApp(),
-        ),
+        MenuItemLabel(label: '종료', onClicked: (menuItem) => _exitApp()),
       ]);
 
       await _systemTray.setContextMenu(menu);
