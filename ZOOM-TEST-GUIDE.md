@@ -6,7 +6,104 @@
 
 ---
 
-## ✅ 가장 간단한 방법: Personal Meeting Room (PMI) 사용
+## 🤖 NEW! 가장 안전한 방법: Zoom API 자동 회의 생성
+
+### 특징
+- ✅ **완전 자동**: 버튼 한 번으로 테스트 회의 생성/삭제
+- ✅ **실제 강의 안전**: PMI나 예약 강의를 건드리지 않음
+- ✅ **언제든지 삭제 가능**: 테스트 후 즉시 삭제
+- ✅ **무제한 생성**: 필요할 때마다 새로 생성
+
+### 설정 방법
+
+#### 1️⃣ Zoom Server-to-Server OAuth 앱 생성
+
+1. **Zoom App Marketplace 접속**
+   ```
+   https://marketplace.zoom.us/
+   ```
+
+2. **"Develop" → "Build App" 클릭**
+
+3. **"Server-to-Server OAuth" 선택**
+   - App Name: `sat-lec-rec-test` (원하는 이름)
+   - Company Name: 본인 이름
+   - Developer Contact: 본인 이메일
+
+4. **앱 생성 후 정보 복사**
+   - **Account ID**: 계정 설정 페이지에서 확인
+   - **Client ID**: 앱 Credentials 탭에서 확인
+   - **Client Secret**: 앱 Credentials 탭에서 확인 (한 번만 표시됨!)
+
+5. **Scopes 권한 추가**
+   - Scopes 탭으로 이동
+   - 다음 권한 추가:
+     - `meeting:write:admin` - 회의 생성/삭제
+     - `user:read:admin` - 사용자 정보 조회
+
+6. **Activation 탭에서 "Activate" 버튼 클릭**
+
+#### 2️⃣ sat-lec-rec 앱에 설정 입력
+
+1. **앱 실행 → ⚙️ 설정 버튼 클릭**
+
+2. **"Zoom API 설정" 섹션 찾기**
+
+3. **복사한 정보 입력**
+   - Account ID
+   - Client ID
+   - Client Secret (입력 시 ●●●로 표시됨)
+
+4. **"저장" 버튼 클릭**
+
+#### 3️⃣ 테스트 실행
+
+1. **🐛 버튼 클릭** (우측 상단 디버그 버튼)
+
+2. **"🤖 자동 테스트 회의" 섹션 확인**
+   - API가 올바르게 설정되었으면 보라색 카드 표시
+   - 설정 안 되었으면 주황색 경고 카드 표시
+
+3. **"테스트 회의 생성" 버튼 클릭**
+   - 2~3초 내에 Zoom 회의 자동 생성
+   - 회의 링크가 자동으로 입력 필드에 채워짐
+
+4. **일반 테스트 진행**
+   - ① Zoom 링크 실행
+   - ② 이름 입력 + 참가
+   - ③ 오디오 참가
+   - ④ 비디오/음소거 테스트
+   - ⑤ Zoom 종료
+
+5. **"회의 삭제" 버튼 클릭**
+   - 테스트 완료 후 회의 삭제
+   - Zoom 계정에서 완전히 제거됨
+
+### 문제 해결
+
+**"❌ Access Token 발급 실패"**
+```
+원인: Client ID/Secret이 잘못됨
+해결: Zoom Marketplace에서 다시 확인 후 입력
+```
+
+**"❌ 회의 생성 실패: 401"**
+```
+원인: Scopes 권한이 없거나 앱이 비활성화됨
+해결:
+1. Scopes에 meeting:write:admin 추가 확인
+2. Activation 탭에서 앱 활성화 확인
+```
+
+**"❌ 회의 생성 실패: 403"**
+```
+원인: Account ID가 잘못됨
+해결: Zoom 계정 설정에서 Account ID 재확인
+```
+
+---
+
+## ✅ 대안: Personal Meeting Room (PMI) 사용
 
 ### 1️⃣ **PMI 링크 확인하기**
 
