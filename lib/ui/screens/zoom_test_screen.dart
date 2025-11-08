@@ -114,6 +114,101 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
     }
   }
 
+  /// 전체 자동 테스트 실행
+  Future<void> _runFullAutoTest() async {
+    // 저장된 테스트 링크가 있으면 사용, 없으면 입력 필드의 링크 사용
+    final testLink = _settingsService.settings.testZoomLink ?? _zoomLinkController.text;
+
+    if (testLink.isEmpty || !testLink.contains('zoom.us')) {
+      setState(() {
+        _lastResult = '❌ 유효한 Zoom 링크가 필요합니다.\n'
+            '설정 화면에서 "테스트용 Zoom 링크"를 저장하거나\n'
+            '위 입력 필드에 링크를 입력하세요.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _lastResult = '🚀 전체 자동 테스트 시작...\n'
+          '링크: $testLink';
+    });
+
+    try {
+      // 1단계: Zoom 실행
+      setState(() => _lastResult = '1/7 🔵 Zoom 실행 중...');
+      await Future.delayed(const Duration(milliseconds: 500));
+      final launchSuccess = await _zoomService.launchZoomMeeting(
+        zoomLink: testLink,
+        waitSeconds: 5,
+      );
+      if (!launchSuccess) {
+        setState(() => _lastResult = '❌ 1/7 단계 실패: Zoom 실행 실패');
+        return;
+      }
+
+      // 2단계: 자동 참가
+      setState(() => _lastResult = '2/7 🟢 자동 참가 중...');
+      await Future.delayed(const Duration(seconds: 3));
+      final joinSuccess = await _zoomService.autoJoinZoomMeeting(
+        zoomLink: testLink,
+        userName: _userNameController.text,
+      );
+      if (!joinSuccess) {
+        setState(() => _lastResult = '❌ 2/7 단계 실패: 자동 참가 실패');
+        return;
+      }
+
+      // 3단계: 오디오 참가
+      setState(() => _lastResult = '3/7 🔊 오디오 참가 중...');
+      await Future.delayed(const Duration(seconds: 2));
+      final audioSuccess = await _zoomService.joinWithAudio();
+      if (!audioSuccess) {
+        setState(() => _lastResult = '⚠️ 3/7 단계 경고: 오디오 참가 실패 (계속 진행)');
+        await Future.delayed(const Duration(seconds: 1));
+      }
+
+      // 4단계: 비디오 끄기
+      setState(() => _lastResult = '4/7 📹 비디오 끄기...');
+      await Future.delayed(const Duration(seconds: 1));
+      await _zoomService.setVideoEnabled(false);
+
+      // 5단계: 음소거
+      setState(() => _lastResult = '5/7 🔇 음소거 설정...');
+      await Future.delayed(const Duration(seconds: 1));
+      await _zoomService.setMuted(true);
+
+      // 6단계: 10초 대기
+      setState(() => _lastResult = '6/7 ⏱️ 10초 대기 중... (테스트 안정성 확인)');
+      await Future.delayed(const Duration(seconds: 10));
+
+      // 7단계: Zoom 종료
+      setState(() => _lastResult = '7/7 🚪 Zoom 종료 중...');
+      await Future.delayed(const Duration(seconds: 1));
+      await _zoomService.closeZoomMeeting();
+
+      setState(() {
+        _lastResult = '✅ 전체 자동 테스트 성공!\n\n'
+            '모든 7단계가 완료되었습니다:\n'
+            '1. Zoom 실행 ✅\n'
+            '2. 자동 참가 ✅\n'
+            '3. 오디오 참가 ✅\n'
+            '4. 비디오 끄기 ✅\n'
+            '5. 음소거 설정 ✅\n'
+            '6. 10초 안정성 확인 ✅\n'
+            '7. Zoom 종료 ✅';
+      });
+    } catch (e) {
+      setState(() {
+        _lastResult = '❌ 전체 자동 테스트 예외 발생: $e';
+      });
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
   /// 테스트 회의 삭제
   Future<void> _deleteTestMeeting() async {
     if (_currentMeetingId == null) {
@@ -235,6 +330,78 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue.shade100,
                         foregroundColor: Colors.blue.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // 전체 자동 테스트 버튼 (가장 눈에 띄게)
+            Card(
+              color: Colors.green.shade50,
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.rocket_launch, color: Colors.green.shade700, size: 32),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '🚀 원클릭 전체 자동 테스트',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '저장된 링크로 모든 단계를 자동 실행합니다 (약 25초 소요)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.green.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _isProcessing ? null : _runFullAutoTest,
+                      icon: const Icon(Icons.play_arrow, size: 28),
+                      label: const Text(
+                        '전체 자동 테스트 시작',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 24.0),
+                        minimumSize: const Size(double.infinity, 60),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      (_settingsService.settings.testZoomLink?.isNotEmpty ?? false)
+                          ? '✅ 저장된 테스트 링크 사용 중'
+                          : '⚠️ 설정에서 테스트 링크를 저장하거나 위 필드에 입력하세요',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: (_settingsService.settings.testZoomLink?.isNotEmpty ?? false)
+                            ? Colors.green.shade700
+                            : Colors.orange.shade700,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],

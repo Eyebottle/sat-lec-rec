@@ -524,6 +524,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
 
+            const Divider(),
+
+            // 테스트용 Zoom 링크 입력
+            Text('테스트용 Zoom 링크 (선택사항)', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            TextField(
+              controller: TextEditingController(text: _settings.testZoomLink ?? ''),
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'https://zoom.us/j/당신의PMI번호',
+                prefixIcon: Icon(Icons.link),
+                helperText: 'PMI 링크를 입력하면 테스트 버튼으로 빠르게 테스트할 수 있습니다',
+                helperMaxLines: 2,
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _settings = _settings.copyWith(testZoomLink: value);
+                  _markChanged();
+                });
+              },
+            ),
+
             if (_settings.enableAutoZoomLaunch) ...[
               const Divider(),
               Text('Zoom 실행 후 대기 시간', style: Theme.of(context).textTheme.titleSmall),

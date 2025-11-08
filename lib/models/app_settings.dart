@@ -61,6 +61,9 @@ class AppSettings {
   /// Zoom API Client Secret (Server-to-Server OAuth)
   final String? zoomApiClientSecret;
 
+  /// 테스트용 Zoom 회의 링크 (PMI 또는 고정 회의)
+  final String? testZoomLink;
+
   AppSettings({
     this.videoWidth = 1920,
     this.videoHeight = 1080,
@@ -79,6 +82,7 @@ class AppSettings {
     this.zoomApiAccountId,
     this.zoomApiClientId,
     this.zoomApiClientSecret,
+    this.testZoomLink,
   });
 
   /// 기본 설정
@@ -104,6 +108,7 @@ class AppSettings {
       'zoomApiAccountId': zoomApiAccountId,
       'zoomApiClientId': zoomApiClientId,
       'zoomApiClientSecret': zoomApiClientSecret,
+      'testZoomLink': testZoomLink,
     };
   }
 
@@ -127,6 +132,7 @@ class AppSettings {
       zoomApiAccountId: json['zoomApiAccountId'] as String?,
       zoomApiClientId: json['zoomApiClientId'] as String?,
       zoomApiClientSecret: json['zoomApiClientSecret'] as String?,
+      testZoomLink: json['testZoomLink'] as String?,
     );
   }
 
@@ -149,6 +155,7 @@ class AppSettings {
     String? zoomApiAccountId,
     String? zoomApiClientId,
     String? zoomApiClientSecret,
+    String? testZoomLink,
   }) {
     return AppSettings(
       videoWidth: videoWidth ?? this.videoWidth,
@@ -168,6 +175,7 @@ class AppSettings {
       zoomApiAccountId: zoomApiAccountId ?? this.zoomApiAccountId,
       zoomApiClientId: zoomApiClientId ?? this.zoomApiClientId,
       zoomApiClientSecret: zoomApiClientSecret ?? this.zoomApiClientSecret,
+      testZoomLink: testZoomLink ?? this.testZoomLink,
     );
   }
 
