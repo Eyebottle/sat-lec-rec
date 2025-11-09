@@ -103,23 +103,23 @@ class _CountdownTimerState extends State<CountdownTimer> {
     // 1시간 이상 남았을 때
     if (hours > 0) {
       if (widget.showSeconds) {
-        return '$hours시간 ${minutes}분 ${seconds}초 후';
+        return '$hours시간 $minutes분 $seconds초 후';
       } else {
-        return '$hours시간 ${minutes}분 후';
+        return '$hours시간 $minutes분 후';
       }
     }
 
     // 1시간 미만일 때
     if (minutes > 0) {
       if (widget.showSeconds) {
-        return '${minutes}분 ${seconds}초 후';
+        return '$minutes분 $seconds초 후';
       } else {
-        return '${minutes}분 후';
+        return '$minutes분 후';
       }
     }
 
     // 1분 미만일 때
-    return '${seconds}초 후';
+    return '$seconds초 후';
   }
 
   @override

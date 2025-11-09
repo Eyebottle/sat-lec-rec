@@ -100,7 +100,7 @@ class ZoomApiService {
         final expiresIn = data['expires_in'] as int; // 초 단위
         _tokenExpiry = DateTime.now().add(Duration(seconds: expiresIn - 60)); // 1분 여유
 
-        _logger.i('✅ Access Token 발급 성공 (유효기간: ${expiresIn}초)');
+        _logger.i('✅ Access Token 발급 성공 (유효기간: $expiresIn초)');
         return _accessToken;
       } else {
         _logger.e('❌ Access Token 발급 실패: ${response.statusCode}');
