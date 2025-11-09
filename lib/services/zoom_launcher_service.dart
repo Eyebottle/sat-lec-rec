@@ -99,13 +99,36 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. Windows에서 기본 브라우저로 열기
-      // start 명령어는 URL을 기본 브라우저로 열고, Zoom 앱이 설치되어 있으면 자동으로 실행됨
+      // 3. HTTP(S) 링크를 zoommtg:// 프로토콜로 변환
+      // 이렇게 하면 브라우저 "앱 열기" 다이얼로그 없이 직접 Zoom이 실행됩니다
+      String zoomProtocolUrl = zoomLink;
+      if (zoomLink.startsWith('http')) {
+        // https://zoom.us/j/123456789?pwd=xxx 형태에서 회의 번호 추출
+        final match = RegExp(r'/j/(\d+)').firstMatch(zoomLink);
+        if (match != null) {
+          final confNo = match.group(1);
+          // pwd 파라미터가 있으면 추출
+          final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
+          final pwd = pwdMatch?.group(1);
+
+          // zoommtg:// 프로토콜로 변환
+          zoomProtocolUrl = 'zoommtg://zoom.us/join?confno=$confNo';
+          if (pwd != null && pwd.isNotEmpty) {
+            zoomProtocolUrl += '&pwd=$pwd';
+          }
+          _logger.i('🔄 HTTP 링크를 Zoom 프로토콜로 변환: $zoomProtocolUrl');
+        } else {
+          _logger.w('⚠️ 회의 번호를 추출할 수 없어 원본 링크 사용');
+        }
+      }
+
+      // 4. Windows에서 zoom:// 프로토콜로 직접 실행
+      // zoommtg:// 프로토콜은 브라우저를 거치지 않고 바로 Zoom 앱을 실행합니다
       final result = await Process.run('cmd', [
         '/c',
         'start',
         '',
-        zoomLink,
+        zoomProtocolUrl,
       ], runInShell: true);
 
       if (result.exitCode != 0) {
@@ -123,11 +146,11 @@ class ZoomLauncherService {
       _logger.i('✅ Zoom 링크 실행 완료');
       await _notifyTray('Zoom 실행', '회의 자동 입장을 준비합니다.');
 
-      // 4. Zoom 앱이 실행될 때까지 대기
+      // 5. Zoom 앱이 실행될 때까지 대기
       _logger.i('⏳ Zoom 앱 실행 대기 중... ($waitSeconds초)');
       await Future.delayed(Duration(seconds: waitSeconds));
 
-      // 5. Zoom 프로세스가 실행 중인지 확인
+      // 6. Zoom 프로세스가 실행 중인지 확인
       final isZoomRunning = await _isZoomProcessRunning();
       if (isZoomRunning) {
         _logger.i('✅ Zoom 앱 실행 확인됨');
