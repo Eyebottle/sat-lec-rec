@@ -17,6 +17,7 @@ import '../style/app_typography.dart';
 import '../style/app_spacing.dart';
 import 'schedule_screen.dart';
 import 'settings_screen.dart';
+import 'zoom_test_screen.dart';
 
 final logger = LoggerService.instance.logger;
 
@@ -558,23 +559,51 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
 
   /// 빠른 테스트 섹션
   Widget _buildQuickTestSection() {
-    return Row(
+    return Column(
       children: [
-        Expanded(
-          child: AppButton.tonal(
-            onPressed: _recorderService.isRecording
-                ? null
-                : () => _test10SecRecording(),
-            icon: Icons.play_circle_outline,
-            child: const Text('10초 녹화 테스트'),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: AppButton.tonal(
+                onPressed: _recorderService.isRecording
+                    ? null
+                    : () => _test10SecRecording(),
+                icon: Icons.play_circle_outline,
+                child: const Text('10초 녹화 테스트'),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: AppButton.secondary(
+                onPressed: () => _testZoomLaunch(),
+                icon: Icons.videocam,
+                child: const Text('Zoom 실행 테스트'),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: AppButton.secondary(
-            onPressed: () => _testZoomLaunch(),
-            icon: Icons.videocam,
-            child: const Text('Zoom 실행 테스트'),
+        const SizedBox(height: AppSpacing.sm),
+        // Zoom 자동화 테스트 화면으로 가는 버튼
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              logger.d('Zoom 자동화 테스트 화면 이동');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ZoomTestScreen()),
+              );
+            },
+            icon: const Icon(Icons.science, size: 20),
+            label: const Text('🧪 Zoom 자동화 전체 테스트'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
         ),
       ],
