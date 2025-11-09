@@ -102,24 +102,144 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('📚 강의 녹화 추천 설정'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('다음 설정으로 변경됩니다:'),
-            SizedBox(height: 12),
-            Text('• 해상도: 1920x1080 (Full HD)', style: TextStyle(fontSize: 14)),
-            Text('• FPS: 30 (부드러운 화면)', style: TextStyle(fontSize: 14)),
-            Text('• 비디오 품질: CRF 20 (고품질)', style: TextStyle(fontSize: 14)),
-            Text('• 오디오: 192 kbps (명확한 음성)', style: TextStyle(fontSize: 14)),
-            Text('• Zoom 자동 실행: ON', style: TextStyle(fontSize: 14)),
-            Text('• 헬스체크: ON', style: TextStyle(fontSize: 14)),
-            SizedBox(height: 12),
-            Text(
-              '강의 슬라이드와 음성이 선명하게 녹화됩니다.',
-              style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-            ),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '강의 녹화에 최적화된 설정입니다.',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+
+              // 해상도
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.high_quality, size: 20, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text('해상도: 1920x1080 (Full HD)',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Text('→ PPT 슬라이드의 작은 글씨도 선명하게 보입니다',
+                          style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // FPS
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Icon(Icons.speed, size: 20, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('FPS: 30 (부드러운 화면)',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Text('→ 화면 전환과 커서 움직임이 자연스럽습니다',
+                          style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // CRF
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Icon(Icons.video_settings, size: 20, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('비디오 품질: CRF 20 (고품질)',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Text('→ 슬라이드 텍스트가 뭉개지지 않고 깨끗합니다',
+                          style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 오디오
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Icon(Icons.graphic_eq, size: 20, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('오디오: 192 kbps (명확한 음성)',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Text('→ 강사님 목소리가 또렷하게 들립니다',
+                          style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 자동화 설정
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Icon(Icons.settings_suggest, size: 20, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Zoom 자동 실행 & 헬스체크 ON',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Text('→ 수동 조작 없이 자동으로 녹화를 시작합니다',
+                          style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.green.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '2시간 강의 기준 약 2-3GB 파일 크기 예상',
+                        style: TextStyle(fontSize: 12, color: Colors.green.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -378,6 +498,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // 해상도
             Text('해상도', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.help_outline, size: 16, color: Colors.green),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Full HD: PPT 슬라이드 선명 (권장) | HD: 저용량/빠른 인코딩',
+                      style: TextStyle(fontSize: 11, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -412,6 +552,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // FPS
             Text('FPS (프레임 레이트)', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.help_outline, size: 16, color: Colors.blue),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '15fps: 저용량 | 24-30fps: 강의 권장 | 60fps: 게임/매끄러운 영상',
+                      style: TextStyle(fontSize: 11, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             SliderWithInput(
               value: _settings.videoFps.toDouble(),
@@ -430,7 +590,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // CRF (품질)
             Text('비디오 품질 (CRF)', style: Theme.of(context).textTheme.titleSmall),
-            const Text('낮을수록 고품질 (파일 크기 증가)', style: TextStyle(fontSize: 12)),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.help_outline, size: 16, color: Colors.orange),
+                      SizedBox(width: 6),
+                      Text(
+                        '낮을수록 고품질 (파일 크기 증가)',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    '18-20: 최고화질 (큰 파일) | 23: 기본값 | 28-30: 저용량',
+                    style: TextStyle(fontSize: 11, color: Colors.black87),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 8),
             SliderWithInput(
               value: _settings.h264Crf.toDouble(),
@@ -568,6 +755,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // 비트레이트
             Text('오디오 비트레이트', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.purple.shade50,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.help_outline, size: 16, color: Colors.purple),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '128: 저용량 | 192: 강의 권장 (명확한 음성) | 256: 음악 포함 시',
+                      style: TextStyle(fontSize: 11, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               children: [
@@ -684,6 +892,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (_settings.enableAutoZoomLaunch) ...[
               const Divider(),
               Text('Zoom 실행 후 대기 시간', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.help_outline, size: 16, color: Colors.teal),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Zoom이 완전히 실행될 때까지 기다리는 시간 (느린 PC는 길게 설정)',
+                        style: TextStyle(fontSize: 11, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 8),
               SliderWithInput(
                 value: _settings.zoomLaunchWaitSeconds.toDouble(),
