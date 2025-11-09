@@ -10,6 +10,7 @@ extern "C" {
 
 __declspec(dllexport) BOOL ZoomAutomation_Initialize();
 __declspec(dllexport) BOOL ZoomAutomation_FindZoomWindow(HWND* out_window_handle);
+__declspec(dllexport) BOOL ZoomAutomation_EnterPassword(const wchar_t* password);
 __declspec(dllexport) BOOL ZoomAutomation_EnterNameAndJoin(const wchar_t* user_name);
 __declspec(dllexport) BOOL ZoomAutomation_CheckWaitingRoom();
 __declspec(dllexport) BOOL ZoomAutomation_CheckHostNotStarted();

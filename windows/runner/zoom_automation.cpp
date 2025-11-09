@@ -218,6 +218,63 @@ bool ClickJoinButton(IUIAutomationElement* root) {
   return SUCCEEDED(invoke_pattern->Invoke());
 }
 
+bool SetPasswordFieldValue(IUIAutomationElement* root,
+                           const wchar_t* password) {
+  if (!root || !password || wcslen(password) == 0) {
+    return false;
+  }
+
+  const std::array<std::wstring, 6> password_keywords = {
+      L"password", L"암호", L"passcode", L"비밀번호", L"회의 암호", L"meeting password"};
+
+  ComPtr<IUIAutomationElement> password_field;
+  if (!FindElementByControlType(root, UIA_EditControlTypeId,
+                                ToVector(password_keywords), &password_field)) {
+    return false;
+  }
+
+  ComPtr<IUIAutomationValuePattern> value_pattern;
+  if (FAILED(password_field->GetCurrentPatternAs(
+          UIA_ValuePatternId, IID_PPV_ARGS(&value_pattern))) ||
+      !value_pattern) {
+    return false;
+  }
+
+  BSTR bstr_password = SysAllocString(password);
+  if (!bstr_password) {
+    return false;
+  }
+
+  const HRESULT hr = value_pattern->SetValue(bstr_password);
+  SysFreeString(bstr_password);
+
+  return SUCCEEDED(hr);
+}
+
+bool ClickPasswordConfirmButton(IUIAutomationElement* root) {
+  if (!root) {
+    return false;
+  }
+
+  const std::array<std::wstring, 4> confirm_keywords = {
+      L"확인", L"ok", L"join", L"continue"};
+
+  ComPtr<IUIAutomationElement> confirm_button;
+  if (!FindElementByControlType(root, UIA_ButtonControlTypeId,
+                                ToVector(confirm_keywords), &confirm_button)) {
+    return false;
+  }
+
+  ComPtr<IUIAutomationInvokePattern> invoke_pattern;
+  if (FAILED(confirm_button->GetCurrentPatternAs(
+          UIA_InvokePatternId, IID_PPV_ARGS(&invoke_pattern))) ||
+      !invoke_pattern) {
+    return false;
+  }
+
+  return SUCCEEDED(invoke_pattern->Invoke());
+}
+
 bool WindowContainsText(IUIAutomationElement* root,
                         const std::vector<std::wstring>& keywords) {
   if (!root) {
@@ -302,6 +359,29 @@ BOOL ZoomAutomation_Initialize() {
 BOOL ZoomAutomation_FindZoomWindow(HWND* out_window_handle) {
   // 입력: out_window_handle에 HWND를 받아온다 / 출력: 찾으면 TRUE
   return TryFindZoomWindow(out_window_handle) ? TRUE : FALSE;
+}
+
+BOOL ZoomAutomation_EnterPassword(const wchar_t* password) {
+  // 입력: password 문자열 / 출력: 암호 입력 및 확인 성공 여부
+  if (!EnsureAutomationReady()) {
+    return FALSE;
+  }
+
+  HWND zoom_window = nullptr;
+  if (!TryFindZoomWindow(&zoom_window)) {
+    return FALSE;
+  }
+
+  ComPtr<IUIAutomationElement> window_element;
+  if (FAILED(g_automation->ElementFromHandle(zoom_window, &window_element)) ||
+      !window_element) {
+    return FALSE;
+  }
+
+  const bool password_ok = SetPasswordFieldValue(window_element.Get(), password);
+  const bool confirm_clicked = ClickPasswordConfirmButton(window_element.Get());
+
+  return (password_ok && confirm_clicked) ? TRUE : FALSE;
 }
 
 BOOL ZoomAutomation_EnterNameAndJoin(const wchar_t* user_name) {

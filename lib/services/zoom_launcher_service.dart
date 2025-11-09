@@ -328,6 +328,43 @@ class ZoomLauncherService {
 
       final safeName = userName.trim().isEmpty ? '녹화 시스템' : userName.trim();
 
+      // URL에서 암호 추출
+      String? password;
+      final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
+      if (pwdMatch != null) {
+        password = pwdMatch.group(1);
+      }
+
+      // 암호 입력 시도 (암호가 있는 경우만)
+      // 대부분의 공개 강의는 암호가 없으므로, 최대 3초(6회×0.5초)만 시도하고 바로 넘어갑니다
+      if (password != null && password.isNotEmpty) {
+        _logger.i('🔑 회의 암호 입력 시도 중...');
+        const passwordAttempts = 6;
+        bool passwordEntered = false;
+
+        for (int i = 1; i <= passwordAttempts; i++) {
+          final passwordPointer = password.toNativeUtf16();
+          try {
+            final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
+            if (automationBool(passwordResult)) {
+              _logger.i('✅ 암호 입력 성공 ($i회 시도)');
+              passwordEntered = true;
+              break;
+            }
+          } finally {
+            malloc.free(passwordPointer);
+          }
+
+          if (i < passwordAttempts) {
+            await Future.delayed(const Duration(milliseconds: 500));
+          }
+        }
+
+        if (!passwordEntered) {
+          _logger.d('ℹ️ 암호 필드를 찾지 못함 (공개 강의일 수 있음)');
+        }
+      }
+
       for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         final namePointer = safeName.toNativeUtf16();
         try {
