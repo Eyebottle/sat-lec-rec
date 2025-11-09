@@ -25,6 +25,7 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
   final TextEditingController _zoomLinkController = TextEditingController(
     text: 'https://zoom.us/j/123456789',
   );
+  final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _userNameController = TextEditingController(
     text: '녹화 시스템',
   );
@@ -44,6 +45,7 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
   @override
   void dispose() {
     _zoomLinkController.dispose();
+    _passwordController.dispose();
     _userNameController.dispose();
     super.dispose();
   }
@@ -152,6 +154,7 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
       final joinSuccess = await _zoomService.autoJoinZoomMeeting(
         zoomLink: testLink,
         userName: _userNameController.text,
+        password: _passwordController.text.isEmpty ? null : _passwordController.text,
       );
       if (!joinSuccess) {
         setState(() => _lastResult = '❌ 2/7 단계 실패: 자동 참가 실패');
@@ -511,6 +514,21 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
 
             const SizedBox(height: 16),
 
+            // 암호 입력 (선택 사항)
+            TextField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Zoom 회의 암호 (선택 사항)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock),
+                hintText: '암호가 필요한 경우에만 입력',
+                helperText: '공개 회의는 비워두세요',
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             // 사용자 이름 입력
             TextField(
               controller: _userNameController,
@@ -552,6 +570,7 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
                 () => _zoomService.autoJoinZoomMeeting(
                   zoomLink: _zoomLinkController.text,
                   userName: _userNameController.text,
+                  password: _passwordController.text.isEmpty ? null : _passwordController.text,
                 ),
               ),
             ),

@@ -271,6 +271,7 @@ class ScheduleService {
       final autoJoined = await _zoomLauncherService.autoJoinZoomMeeting(
         zoomLink: schedule.zoomLink,
         userName: 'sat-lec-rec 자동 녹화',
+        password: schedule.password,
         initialWaitSeconds: 5,
       );
 

@@ -283,13 +283,14 @@ class ZoomLauncherService {
 
   /// Zoom UI Automation을 사용해 이름 입력과 참가 버튼 클릭까지 수행한다.
   /// 입력: [zoomLink]는 접속할 회의 주소, [userName]은 참가 시 표시될 이름,
-  /// [initialWaitSeconds]는 Zoom 실행 후 UI 자동화까지 기다릴 시간이다.
+  /// [password]는 회의 암호 (선택 사항), [initialWaitSeconds]는 Zoom 실행 후 UI 자동화까지 기다릴 시간이다.
   /// 출력: 자동 참가에 성공하면 true, 중간 단계에서 막히면 false를 돌려준다.
   /// 예외: Windows UI Automation 초기화 실패나 네이티브 오류가 발생하면 false를 반환하며
   ///       로그에 스택 정보를 남긴다.
   Future<bool> autoJoinZoomMeeting({
     required String zoomLink,
     String userName = '녹화 시스템',
+    String? password,
     int initialWaitSeconds = 5,
     int maxAttempts = 30,
   }) async {
@@ -328,14 +329,7 @@ class ZoomLauncherService {
 
       final safeName = userName.trim().isEmpty ? '녹화 시스템' : userName.trim();
 
-      // URL에서 암호 추출
-      String? password;
-      final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
-      if (pwdMatch != null) {
-        password = pwdMatch.group(1);
-      }
-
-      // 암호 입력 시도 (암호가 있는 경우만)
+      // 암호 입력 시도 (암호가 제공된 경우만)
       // 대부분의 공개 강의는 암호가 없으므로, 최대 3초(6회×0.5초)만 시도하고 바로 넘어갑니다
       if (password != null && password.isNotEmpty) {
         _logger.i('🔑 회의 암호 입력 시도 중...');
