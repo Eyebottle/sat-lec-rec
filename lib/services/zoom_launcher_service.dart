@@ -99,28 +99,62 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. URL 정규화: us05web.zoom.us 등을 zoom.us로 변경
-      // 웹 클라이언트 URL(us05web 등)은 자동으로 앱을 트리거하지 않으므로
-      // 일반 zoom.us 도메인으로 변경하여 앱 자동 실행 유도
-      String normalizedUrl = zoomLink;
-      if (zoomLink.contains('zoom.us')) {
-        // https://us05web.zoom.us/j/123?pwd=xxx -> https://zoom.us/j/123?pwd=xxx
-        normalizedUrl = zoomLink.replaceAll(RegExp(r'https?://[^/]*zoom\.us'), 'https://zoom.us');
-        if (normalizedUrl != zoomLink) {
-          _logger.i('🔄 URL 정규화: $normalizedUrl');
+      // 3. HTTP(S) 링크를 zoommtg:// 프로토콜로 변환
+      String zoomProtocolUrl = zoomLink;
+      if (zoomLink.startsWith('http')) {
+        final match = RegExp(r'/j/(\d+)').firstMatch(zoomLink);
+        if (match != null) {
+          final confNo = match.group(1);
+          final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
+          final pwd = pwdMatch?.group(1);
+
+          zoomProtocolUrl = 'zoommtg://zoom.us/join?confno=$confNo';
+          if (pwd != null && pwd.isNotEmpty) {
+            zoomProtocolUrl += '&pwd=$pwd';
+          }
+          _logger.i('🔄 HTTP 링크를 Zoom 프로토콜로 변환: $zoomProtocolUrl');
+        } else {
+          _logger.w('⚠️ 회의 번호를 추출할 수 없어 원본 링크 사용');
         }
       }
 
-      // 4. HTTP URL을 브라우저로 열기
-      // 브라우저가 Zoom 웹페이지를 로드하고, 자동으로 Zoom 앱을 트리거합니다
-      _logger.i('🌐 브라우저로 Zoom 링크 열기: $normalizedUrl');
+      // 4. Zoom.exe를 직접 실행하면서 --url 파라미터로 회의 정보 전달
+      // 이 방식이 가장 확실하고 브라우저 없이 바로 Zoom 앱을 실행합니다
+      final zoomPaths = [
+        r'C:\Program Files\Zoom\bin\Zoom.exe',
+        r'C:\Program Files (x86)\Zoom\bin\Zoom.exe',
+        Platform.environment['APPDATA'] != null
+            ? '${Platform.environment['APPDATA']}\\Zoom\\bin\\Zoom.exe'
+            : null,
+      ];
 
-      final result = await Process.run('cmd', [
-        '/c',
-        'start',
-        '',
-        normalizedUrl,
-      ], runInShell: true);
+      String? zoomExePath;
+      for (final path in zoomPaths) {
+        if (path == null) continue;
+        if (await File(path).exists()) {
+          zoomExePath = path;
+          break;
+        }
+      }
+
+      if (zoomExePath == null) {
+        _logger.e('❌ Zoom.exe를 찾을 수 없습니다');
+        _updateAutomationState(
+          ZoomAutomationStage.failed,
+          'Zoom 앱을 찾을 수 없습니다. Zoom이 설치되어 있는지 확인하세요.',
+          isError: true,
+        );
+        return false;
+      }
+
+      _logger.i('🎯 Zoom.exe 직접 실행: $zoomExePath');
+      _logger.i('📞 회의 URL: $zoomProtocolUrl');
+
+      final result = await Process.run(
+        zoomExePath,
+        ['--url=$zoomProtocolUrl'],
+        runInShell: false,
+      );
 
       if (result.exitCode != 0) {
         _logger.e('❌ Zoom 링크 실행 실패 (exit code: ${result.exitCode})');
