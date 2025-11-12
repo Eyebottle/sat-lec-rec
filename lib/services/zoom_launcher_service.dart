@@ -99,35 +99,16 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. HTTP(S) 링크를 zoommtg:// 프로토콜로 변환
-      // 이렇게 하면 브라우저 "앱 열기" 다이얼로그 없이 직접 Zoom이 실행됩니다
-      // pwd 파라미터도 포함하여 암호 입력 없이 참가 가능
-      String zoomProtocolUrl = zoomLink;
-      if (zoomLink.startsWith('http')) {
-        // https://zoom.us/j/123456789?pwd=xxx 형태에서 회의 번호와 pwd 추출
-        final match = RegExp(r'/j/(\d+)').firstMatch(zoomLink);
-        if (match != null) {
-          final confNo = match.group(1);
-          final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
-          final pwd = pwdMatch?.group(1);
+      // 3. HTTP URL을 그대로 기본 브라우저로 열기
+      // 브라우저가 Zoom 웹페이지를 로드하고, 자동으로 Zoom 앱을 트리거합니다
+      // 이 방식이 pwd 토큰을 가장 확실하게 처리합니다
+      _logger.i('🌐 브라우저로 Zoom 링크 열기: $zoomLink');
 
-          // zoommtg:// 프로토콜로 변환 (pwd 포함 시 자동 인증)
-          zoomProtocolUrl = 'zoommtg://zoom.us/join?confno=$confNo';
-          if (pwd != null && pwd.isNotEmpty) {
-            zoomProtocolUrl += '&pwd=$pwd';
-          }
-          _logger.i('🔄 HTTP 링크를 Zoom 프로토콜로 변환: $zoomProtocolUrl');
-        } else {
-          _logger.w('⚠️ 회의 번호를 추출할 수 없어 원본 링크 사용');
-        }
-      }
-
-      // 4. Windows에서 zoom:// 프로토콜로 직접 실행
-      // PowerShell Start-Process를 사용하여 URL 안전하게 전달
-      // 작은따옴표로 URL 전체를 감싸서 & 문자 파싱 문제 해결
-      final result = await Process.run('powershell', [
-        '-Command',
-        "Start-Process '$zoomProtocolUrl'"
+      final result = await Process.run('cmd', [
+        '/c',
+        'start',
+        '',
+        zoomLink,
       ], runInShell: true);
 
       if (result.exitCode != 0) {
