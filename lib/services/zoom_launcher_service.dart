@@ -99,16 +99,27 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. HTTP URL을 그대로 기본 브라우저로 열기
+      // 3. URL 정규화: us05web.zoom.us 등을 zoom.us로 변경
+      // 웹 클라이언트 URL(us05web 등)은 자동으로 앱을 트리거하지 않으므로
+      // 일반 zoom.us 도메인으로 변경하여 앱 자동 실행 유도
+      String normalizedUrl = zoomLink;
+      if (zoomLink.contains('zoom.us')) {
+        // https://us05web.zoom.us/j/123?pwd=xxx -> https://zoom.us/j/123?pwd=xxx
+        normalizedUrl = zoomLink.replaceAll(RegExp(r'https?://[^/]*zoom\.us'), 'https://zoom.us');
+        if (normalizedUrl != zoomLink) {
+          _logger.i('🔄 URL 정규화: $normalizedUrl');
+        }
+      }
+
+      // 4. HTTP URL을 브라우저로 열기
       // 브라우저가 Zoom 웹페이지를 로드하고, 자동으로 Zoom 앱을 트리거합니다
-      // 이 방식이 pwd 토큰을 가장 확실하게 처리합니다
-      _logger.i('🌐 브라우저로 Zoom 링크 열기: $zoomLink');
+      _logger.i('🌐 브라우저로 Zoom 링크 열기: $normalizedUrl');
 
       final result = await Process.run('cmd', [
         '/c',
         'start',
         '',
-        zoomLink,
+        normalizedUrl,
       ], runInShell: true);
 
       if (result.exitCode != 0) {
