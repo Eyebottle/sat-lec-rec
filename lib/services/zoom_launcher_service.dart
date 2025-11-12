@@ -123,11 +123,11 @@ class ZoomLauncherService {
       }
 
       // 4. Windows에서 zoom:// 프로토콜로 직접 실행
-      // PowerShell Start-Process를 사용하여 URL 안전하게 전달 (& 문자 이스케이프 불필요)
+      // PowerShell Start-Process를 사용하여 URL 안전하게 전달
+      // 작은따옴표로 URL 전체를 감싸서 & 문자 파싱 문제 해결
       final result = await Process.run('powershell', [
         '-Command',
-        'Start-Process',
-        '"$zoomProtocolUrl"',
+        "Start-Process '$zoomProtocolUrl'"
       ], runInShell: true);
 
       if (result.exitCode != 0) {
