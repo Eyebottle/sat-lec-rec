@@ -108,67 +108,50 @@ class ZoomLauncherService {
           final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
           final pwd = pwdMatch?.group(1);
 
-          zoomProtocolUrl = 'zoommtg://zoom.us/join?confno=$confNo';
-          if (pwd != null && pwd.isNotEmpty) {
-            zoomProtocolUrl += '&pwd=$pwd';
-          }
+          // pwd가 있으면 URL 인코딩 적용 (특수문자 안전 처리)
+          final encodedPwd = pwd != null && pwd.isNotEmpty
+              ? Uri.encodeComponent(pwd)
+              : null;
+
+          // Windows 프로토콜 핸들러를 위한 URL 조합
+          zoomProtocolUrl = [
+            'zoommtg://zoom.us/join?action=join',
+            'confno=$confNo',
+            if (encodedPwd != null) 'pwd=$encodedPwd',
+          ].join('&');
+
           _logger.i('🔄 HTTP 링크를 Zoom 프로토콜로 변환: $zoomProtocolUrl');
         } else {
           _logger.w('⚠️ 회의 번호를 추출할 수 없어 원본 링크 사용');
         }
       }
 
-      // 4. Zoom.exe를 직접 실행하면서 --url 파라미터로 회의 정보 전달
-      // 이 방식이 가장 확실하고 브라우저 없이 바로 Zoom 앱을 실행합니다
-      final zoomPaths = [
-        r'C:\Program Files\Zoom\bin\Zoom.exe',
-        r'C:\Program Files (x86)\Zoom\bin\Zoom.exe',
-        Platform.environment['APPDATA'] != null
-            ? '${Platform.environment['APPDATA']}\\Zoom\\bin\\Zoom.exe'
-            : null,
-      ];
-
-      String? zoomExePath;
-      for (final path in zoomPaths) {
-        if (path == null) continue;
-        if (await File(path).exists()) {
-          zoomExePath = path;
-          break;
-        }
-      }
-
-      if (zoomExePath == null) {
-        _logger.e('❌ Zoom.exe를 찾을 수 없습니다');
-        _updateAutomationState(
-          ZoomAutomationStage.failed,
-          'Zoom 앱을 찾을 수 없습니다. Zoom이 설치되어 있는지 확인하세요.',
-          isError: true,
-        );
-        return false;
-      }
-
-      _logger.i('🎯 Zoom.exe 직접 실행: $zoomExePath');
+      // 4. Windows 프로토콜 핸들러를 통해 Zoom 실행
+      // rundll32 url.dll을 사용하면 CMD의 & 파싱 문제를 회피하고
+      // Windows가 등록된 zoommtg:// 핸들러를 직접 호출합니다
+      _logger.i('🎯 Windows 프로토콜 핸들러로 Zoom 실행');
       _logger.i('📞 회의 URL: $zoomProtocolUrl');
 
-      final result = await Process.run(
-        zoomExePath,
-        ['--url=$zoomProtocolUrl'],
-        runInShell: false,
-      );
-
-      if (result.exitCode != 0) {
-        _logger.e('❌ Zoom 링크 실행 실패 (exit code: ${result.exitCode})');
-        _logger.e('  stdout: ${result.stdout}');
-        _logger.e('  stderr: ${result.stderr}');
-        _updateAutomationState(
-          ZoomAutomationStage.failed,
-          'Zoom 링크 실행에 실패했습니다. 링크를 다시 확인하세요.',
-          isError: true,
+      try {
+        // rundll32 url.dll,FileProtocolHandler 방식 사용
+        // 이 방법은 CMD의 & 문자 파싱 문제를 완전히 회피합니다
+        final process = await Process.start(
+          'rundll32',
+          ['url.dll,FileProtocolHandler', zoomProtocolUrl],
+          runInShell: false,
         );
-        return false;
-      }
 
-      _logger.i('✅ Zoom 링크 실행 완료');
+        _logger.i('✅ Zoom 프로토콜 실행 완료: pid=${process.pid}');
+      } catch (e) {
+        // rundll32 실패 시 폴백: CMD 사용하되 URL 전체를 큰따옴표로 감싸기
+        _logger.w('⚠️ rundll32 실패, CMD 폴백 시도: $e');
+        final process = await Process.start(
+          'cmd',
+          ['/c', 'start', '', '"$zoomProtocolUrl"'],
+          runInShell: false,
+        );
+        _logger.i('✅ Zoom 프로토콜 실행 완료 (CMD 폴백): pid=${process.pid}');
+      }
       await _notifyTray('Zoom 실행', '회의 자동 입장을 준비합니다.');
 
       // 5. Zoom 앱이 실행될 때까지 대기
