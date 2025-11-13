@@ -17,6 +17,7 @@ __declspec(dllexport) BOOL ZoomAutomation_CheckHostNotStarted();
 __declspec(dllexport) BOOL ZoomAutomation_JoinWithAudio();
 __declspec(dllexport) BOOL ZoomAutomation_SetVideoEnabled(BOOL enable);
 __declspec(dllexport) BOOL ZoomAutomation_SetMuted(BOOL mute);
+__declspec(dllexport) BOOL ZoomAutomation_ClickBrowserDialog();
 __declspec(dllexport) void ZoomAutomation_Cleanup();
 
 #ifdef __cplusplus

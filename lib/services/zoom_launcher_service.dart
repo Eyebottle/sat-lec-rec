@@ -99,11 +99,19 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. HTTP(S) 링크를 브라우저로 열기 (암호 자동 전달 보장)
-      // 핵심: zoommtg:// 프로토콜은 암호를 자동으로 전달하지 않을 수 있습니다.
-      // 브라우저에서 HTTP URL을 열면 Zoom이 내부적으로 암호를 처리하여
-      // 암호 입력창 없이 자동 참가가 가능합니다.
-      _logger.i('🌐 브라우저를 통해 Zoom 링크 실행 (암호 자동 전달)');
+      // 2.5. URL에서 암호 추출 (나중에 UI Automation으로 입력하기 위함)
+      String? extractedPassword;
+      final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
+      if (pwdMatch != null) {
+        extractedPassword = pwdMatch.group(1);
+        _logger.i('🔑 URL에서 암호 추출 완료 (자동 입력 준비)');
+      }
+
+      // 3. HTTP(S) 링크를 브라우저로 열기
+      // 브라우저를 통해 Zoom 앱을 실행합니다.
+      // 암호는 브라우저가 자동으로 전달하지 않을 수 있으므로,
+      // 나중에 UI Automation으로 직접 입력합니다.
+      _logger.i('🌐 브라우저를 통해 Zoom 링크 실행');
       _logger.i('📞 회의 URL: $zoomLink');
 
       try {
@@ -115,8 +123,25 @@ class ZoomLauncherService {
           runInShell: false,
         );
 
-        _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
-        _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
+      _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
+      _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
+
+      // 브라우저 다이얼로그 자동 클릭 시도 (최대 5초)
+      _logger.i('🖱️ 브라우저 다이얼로그 자동 클릭 시도 중...');
+      bool dialogClicked = false;
+      for (int i = 0; i < 10; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
+          if (automationBool(ZoomAutomationBindings.clickBrowserDialog())) {
+            _logger.i('✅ 브라우저 다이얼로그 클릭 성공 (${i + 1}회 시도)');
+            dialogClicked = true;
+            break;
+          }
+        }
+      }
+      if (!dialogClicked) {
+        _logger.d('ℹ️ 브라우저 다이얼로그를 찾지 못함 (수동 클릭 필요할 수 있음)');
+      }
       } catch (e) {
         // rundll32 실패 시 폴백: CMD start 사용
         _logger.w('⚠️ rundll32 실패, CMD 폴백 시도: $e');
@@ -137,6 +162,44 @@ class ZoomLauncherService {
       // 5. Zoom 앱이 실행될 때까지 대기
       _logger.i('⏳ Zoom 앱 실행 대기 중... ($waitSeconds초)');
       await Future.delayed(Duration(seconds: waitSeconds));
+
+      // 5.5. 암호가 추출된 경우 UI Automation으로 자동 입력 시도
+      if (extractedPassword != null && extractedPassword.isNotEmpty) {
+        _logger.i('🔐 UI Automation으로 암호 자동 입력 시도 중...');
+
+        if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
+          bool passwordEntered = false;
+          const maxAttempts = 10; // 최대 5초 (500ms × 10회)
+
+          for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            final passwordPointer = extractedPassword.toNativeUtf16();
+            try {
+              final result = ZoomAutomationBindings.enterPassword(passwordPointer);
+              if (automationBool(result)) {
+                _logger.i('✅ 암호 자동 입력 성공 ($attempt회 시도)');
+                await _notifyTray('암호 입력 완료', '자동으로 암호를 입력했습니다.');
+                passwordEntered = true;
+                break;
+              }
+            } finally {
+              malloc.free(passwordPointer);
+            }
+
+            // 암호 입력창이 아직 나타나지 않았을 수 있음
+            if (attempt < maxAttempts) {
+              await Future.delayed(const Duration(milliseconds: 500));
+            }
+          }
+
+          ZoomAutomationBindings.cleanupUIAutomation();
+
+          if (!passwordEntered) {
+            _logger.w('⚠️ 암호 입력창을 찾지 못했습니다 (브라우저가 이미 처리했거나 수동 입력 필요)');
+          }
+        } else {
+          _logger.w('⚠️ UI Automation 초기화 실패 (암호 수동 입력 필요)');
+        }
+      }
 
       // 6. Zoom 프로세스가 실행 중인지 확인
       final isZoomRunning = await _isZoomProcessRunning();
@@ -304,24 +367,43 @@ class ZoomLauncherService {
         return false;
       }
 
-      if (ZoomAutomationBindings.initializeUIAutomation() == 0) {
-        _logger.e('❌ UI Automation 초기화 실패');
-        await _notifyTray('자동 참가 실패', 'Windows UI Automation 초기화에 실패했습니다.');
-        _updateAutomationState(
-          ZoomAutomationStage.failed,
-          'Windows UI Automation 초기화에 실패했습니다.',
-          isError: true,
-        );
-        return false;
+      // 브라우저를 통해 실행하는 경우 Zoom 창이 완전히 로드될 때까지 추가 대기
+      _logger.i('⏳ Zoom 창이 완전히 로드될 때까지 대기 중... (최대 10초)');
+      bool zoomWindowReady = false;
+      for (int waitAttempt = 0; waitAttempt < 10; waitAttempt++) {
+        await Future.delayed(const Duration(seconds: 1));
+        // UI Automation 초기화 시도 (성공하면 Zoom 창이 준비된 것)
+        if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
+          zoomWindowReady = true;
+          _logger.i('✅ Zoom 창 준비 완료 (${waitAttempt + 1}초 후)');
+          break;
+        }
+        _logger.d('⏳ Zoom 창 대기 중... (${waitAttempt + 1}/10초)');
+      }
+
+      if (!zoomWindowReady) {
+        _logger.w('⚠️ Zoom 창을 찾지 못했습니다. UI Automation 재시도...');
+        // 마지막 시도
+        if (ZoomAutomationBindings.initializeUIAutomation() == 0) {
+          _logger.e('❌ UI Automation 초기화 실패');
+          await _notifyTray('자동 참가 실패', 'Windows UI Automation 초기화에 실패했습니다.');
+          _updateAutomationState(
+            ZoomAutomationStage.failed,
+            'Windows UI Automation 초기화에 실패했습니다. Zoom 창이 열렸는지 확인하세요.',
+            isError: true,
+          );
+          return false;
+        }
       }
 
       final safeName = userName.trim().isEmpty ? '녹화 시스템' : userName.trim();
 
       // 암호 입력 시도 (암호가 제공된 경우만)
-      // 대부분의 공개 강의는 암호가 없으므로, 최대 3초(6회×0.5초)만 시도하고 바로 넘어갑니다
+      // 브라우저를 통해 실행하면 암호가 자동으로 전달되므로, 암호 입력창이 나타나지 않을 수 있습니다.
+      // 하지만 수동으로 암호를 제공한 경우(URL에 없고 별도 파라미터로 전달) 시도합니다.
       if (password != null && password.isNotEmpty) {
-        _logger.i('🔑 회의 암호 입력 시도 중...');
-        const passwordAttempts = 6;
+        _logger.i('🔑 회의 암호 입력 시도 중... (브라우저를 통해 실행했다면 이미 처리되었을 수 있음)');
+        const passwordAttempts = 10; // 대기 시간 증가 (5초)
         bool passwordEntered = false;
 
         for (int i = 1; i <= passwordAttempts; i++) {
@@ -343,10 +425,13 @@ class ZoomLauncherService {
         }
 
         if (!passwordEntered) {
-          _logger.d('ℹ️ 암호 필드를 찾지 못함 (공개 강의일 수 있음)');
+          _logger.d('ℹ️ 암호 필드를 찾지 못함 (브라우저를 통해 이미 처리되었거나 공개 강의일 수 있음)');
         }
+      } else {
+        _logger.d('ℹ️ 별도 암호가 제공되지 않음 (URL에 포함된 암호가 브라우저를 통해 자동 전달됨)');
       }
 
+      _logger.i('👤 이름 입력 및 참가 버튼 클릭 시도 시작...');
       for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         final namePointer = safeName.toNativeUtf16();
         try {
@@ -361,13 +446,17 @@ class ZoomLauncherService {
               '대기실 승인 결과를 확인하는 중입니다.',
             );
             return true;
+          } else {
+            _logger.d('⏳ 참가 버튼을 찾지 못함. 재시도 중... ($attempt/$maxAttempts)');
+            // Zoom 창이 아직 완전히 로드되지 않았을 수 있으므로 짧은 대기
+            await Future.delayed(const Duration(milliseconds: 800));
           }
+        } catch (e) {
+          _logger.w('⚠️ 이름 입력 시도 중 오류: $e');
+          await Future.delayed(const Duration(milliseconds: 800));
         } finally {
           malloc.free(namePointer);
         }
-
-        _logger.d('⏳ 참가 버튼 탐색 재시도 ($attempt/$maxAttempts)');
-        await Future.delayed(const Duration(seconds: 1));
       }
 
       _logger.w('⚠️ Zoom 자동 진입 타임아웃 (30초 경과)');

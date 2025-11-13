@@ -87,6 +87,15 @@ class ZoomAutomationBindings {
           'ZoomAutomation_SetMuted')
       .asFunction();
 
+  /// 브라우저 다이얼로그의 "Zoom Meetings 열기" 버튼 클릭
+  /// 입력: 없음
+  /// 출력: 성공 시 1, 실패 시 0
+  /// 예외: 브라우저 창이나 버튼을 찾을 수 없으면 0
+  static final DartNoParamBool clickBrowserDialog = _lib
+      .lookup<ffi.NativeFunction<NativeNoParamBool>>(
+          'ZoomAutomation_ClickBrowserDialog')
+      .asFunction();
+
   /// UI Automation 세션 정리
   static final DartCleanup cleanupUIAutomation = _lib
       .lookup<ffi.NativeFunction<NativeCleanup>>('ZoomAutomation_Cleanup')

@@ -564,6 +564,69 @@ BOOL ZoomAutomation_SetVideoEnabled(BOOL enable) {
   return FALSE;
 }
 
+BOOL ZoomAutomation_ClickBrowserDialog() {
+  // 입력: 없음 / 출력: 브라우저 다이얼로그의 "Zoom Meetings 열기" 버튼 클릭 성공 여부
+  if (!EnsureAutomationReady()) {
+    return FALSE;
+  }
+
+  // 브라우저 창 찾기 (Chrome, Edge, Firefox 등)
+  HWND browser_window = nullptr;
+  EnumWindows([](HWND hwnd, LPARAM lparam) -> BOOL {
+    if (!IsWindowVisible(hwnd)) {
+      return TRUE;
+    }
+
+    wchar_t class_name[256] = {0};
+    GetClassNameW(hwnd, class_name, static_cast<int>(std::size(class_name)));
+    std::wstring class_str(class_name);
+
+    // Chrome, Edge, Firefox 등 브라우저 클래스명
+    const std::array<std::wstring, 4> browser_classes = {
+        L"Chrome_WidgetWin_1", L"Chrome_WidgetWin_0",
+        L"MozillaWindowClass", L"ApplicationFrameWindow"};
+
+    for (const auto& browser_class : browser_classes) {
+      if (class_str.find(browser_class) != std::wstring::npos) {
+        *reinterpret_cast<HWND*>(lparam) = hwnd;
+        return FALSE;  // Stop enumeration
+      }
+    }
+
+    return TRUE;
+  }, reinterpret_cast<LPARAM>(&browser_window));
+
+  if (!browser_window) {
+    return FALSE;
+  }
+
+  ComPtr<IUIAutomationElement> browser_element;
+  if (FAILED(g_automation->ElementFromHandle(browser_window, &browser_element)) ||
+      !browser_element) {
+    return FALSE;
+  }
+
+  // "Zoom Meetings 열기", "허용", "열기" 등의 버튼 찾기
+  const std::array<std::wstring, 8> dialog_button_keywords = {
+      L"zoom meetings 열기", L"zoom meetings", L"열기", L"open",
+      L"허용", L"allow", L"확인", L"ok"};
+
+  ComPtr<IUIAutomationElement> dialog_button;
+  if (!FindElementByControlType(browser_element.Get(), UIA_ButtonControlTypeId,
+                                ToVector(dialog_button_keywords), &dialog_button)) {
+    return FALSE;
+  }
+
+  ComPtr<IUIAutomationInvokePattern> invoke_pattern;
+  if (FAILED(dialog_button->GetCurrentPatternAs(
+          UIA_InvokePatternId, IID_PPV_ARGS(&invoke_pattern))) ||
+      !invoke_pattern) {
+    return FALSE;
+  }
+
+  return SUCCEEDED(invoke_pattern->Invoke());
+}
+
 BOOL ZoomAutomation_SetMuted(BOOL mute) {
   // 입력: mute (TRUE=음소거, FALSE=음소거 해제)
   // 출력: 음소거 버튼 클릭 성공 여부
