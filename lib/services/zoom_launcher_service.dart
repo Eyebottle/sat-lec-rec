@@ -99,58 +99,38 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. HTTP(S) 링크를 zoommtg:// 프로토콜로 변환
-      String zoomProtocolUrl = zoomLink;
-      if (zoomLink.startsWith('http')) {
-        final match = RegExp(r'/j/(\d+)').firstMatch(zoomLink);
-        if (match != null) {
-          final confNo = match.group(1);
-          final pwdMatch = RegExp(r'pwd=([^&]+)').firstMatch(zoomLink);
-          final pwd = pwdMatch?.group(1);
-
-          // pwd가 있으면 URL 인코딩 적용 (특수문자 안전 처리)
-          final encodedPwd = pwd != null && pwd.isNotEmpty
-              ? Uri.encodeComponent(pwd)
-              : null;
-
-          // Windows 프로토콜 핸들러를 위한 URL 조합
-          zoomProtocolUrl = [
-            'zoommtg://zoom.us/join?action=join',
-            'confno=$confNo',
-            if (encodedPwd != null) 'pwd=$encodedPwd',
-          ].join('&');
-
-          _logger.i('🔄 HTTP 링크를 Zoom 프로토콜로 변환: $zoomProtocolUrl');
-        } else {
-          _logger.w('⚠️ 회의 번호를 추출할 수 없어 원본 링크 사용');
-        }
-      }
-
-      // 4. Windows 프로토콜 핸들러를 통해 Zoom 실행
-      // rundll32 url.dll을 사용하면 CMD의 & 파싱 문제를 회피하고
-      // Windows가 등록된 zoommtg:// 핸들러를 직접 호출합니다
-      _logger.i('🎯 Windows 프로토콜 핸들러로 Zoom 실행');
-      _logger.i('📞 회의 URL: $zoomProtocolUrl');
+      // 3. HTTP(S) 링크를 브라우저로 열기 (암호 자동 전달 보장)
+      // 핵심: zoommtg:// 프로토콜은 암호를 자동으로 전달하지 않을 수 있습니다.
+      // 브라우저에서 HTTP URL을 열면 Zoom이 내부적으로 암호를 처리하여
+      // 암호 입력창 없이 자동 참가가 가능합니다.
+      _logger.i('🌐 브라우저를 통해 Zoom 링크 실행 (암호 자동 전달)');
+      _logger.i('📞 회의 URL: $zoomLink');
 
       try {
-        // rundll32 url.dll,FileProtocolHandler 방식 사용
-        // 이 방법은 CMD의 & 문자 파싱 문제를 완전히 회피합니다
+        // HTTP(S) URL을 브라우저로 열기
+        // 브라우저가 Zoom 프로토콜 핸들러를 호출하면서 암호 정보를 자동으로 전달합니다
         final process = await Process.start(
           'rundll32',
-          ['url.dll,FileProtocolHandler', zoomProtocolUrl],
+          ['url.dll,FileProtocolHandler', zoomLink],
           runInShell: false,
         );
 
-        _logger.i('✅ Zoom 프로토콜 실행 완료: pid=${process.pid}');
+        _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
+        _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
       } catch (e) {
-        // rundll32 실패 시 폴백: CMD 사용하되 URL 전체를 큰따옴표로 감싸기
+        // rundll32 실패 시 폴백: CMD start 사용
         _logger.w('⚠️ rundll32 실패, CMD 폴백 시도: $e');
-        final process = await Process.start(
-          'cmd',
-          ['/c', 'start', '', '"$zoomProtocolUrl"'],
-          runInShell: false,
-        );
-        _logger.i('✅ Zoom 프로토콜 실행 완료 (CMD 폴백): pid=${process.pid}');
+        try {
+          final process = await Process.start(
+            'cmd',
+            ['/c', 'start', '', zoomLink],
+            runInShell: false,
+          );
+          _logger.i('✅ Zoom 링크 실행 완료 (CMD 폴백): pid=${process.pid}');
+        } catch (e2) {
+          _logger.e('❌ Zoom 링크 실행 실패: $e2');
+          rethrow;
+        }
       }
       await _notifyTray('Zoom 실행', '회의 자동 입장을 준비합니다.');
 
