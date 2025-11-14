@@ -305,29 +305,26 @@ class ZoomLauncherService {
         ZoomAutomationStage.autoJoining,
         '자동으로 이름을 입력하고 참가 버튼을 누르고 있습니다.',
       );
-      bool skipLaunch = false;
       if (await _isZoomProcessRunning()) {
-        skipLaunch = true;
-        _logger.i('🔁 Zoom 프로세스가 이미 실행 중입니다. 중복 실행을 건너뜁니다.');
-        await Future.delayed(Duration(seconds: initialWaitSeconds));
+        _logger.w('🔁 기존 Zoom 프로세스 감지 → 충돌 방지를 위해 종료 후 재시작합니다.');
+        await closeZoomMeeting(force: true);
+        await Future.delayed(const Duration(seconds: 2));
       }
 
-      if (!skipLaunch) {
-        final launched = await launchZoomMeeting(
-          zoomLink: zoomLink,
-          waitSeconds: initialWaitSeconds,
-        );
+      final launched = await launchZoomMeeting(
+        zoomLink: zoomLink,
+        waitSeconds: initialWaitSeconds,
+      );
 
-        if (!launched) {
-          _logger.e('❌ Zoom 실행 실패로 자동 진입 중단');
-          await _notifyTray('Zoom 실행 실패', '링크 실행에 실패했습니다. 수동 확인이 필요합니다.');
-          _updateAutomationState(
-            ZoomAutomationStage.failed,
-            'Zoom 실행에 실패해 자동 참가를 중단했습니다.',
-            isError: true,
-          );
-          return false;
-        }
+      if (!launched) {
+        _logger.e('❌ Zoom 실행 실패로 자동 진입 중단');
+        await _notifyTray('Zoom 실행 실패', '링크 실행에 실패했습니다. 수동 확인이 필요합니다.');
+        _updateAutomationState(
+          ZoomAutomationStage.failed,
+          'Zoom 실행에 실패해 자동 참가를 중단했습니다.',
+          isError: true,
+        );
+        return false;
       }
 
       // 브라우저를 통해 실행하는 경우 Zoom 창이 완전히 로드될 때까지 추가 대기
