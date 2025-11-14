@@ -136,69 +136,58 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
     });
 
     try {
-      // 1단계: Zoom 실행
-      setState(() => _lastResult = '1/7 🔵 Zoom 실행 중...');
+      // 1단계: Zoom 실행 및 자동 참가
+      // autoJoinZoomMeeting이 내부에서 Zoom 실행을 포함하므로
+      // launchZoomMeeting을 별도로 호출하지 않습니다
+      setState(() => _lastResult = '1/7 🔵 Zoom 실행 및 자동 참가 중...');
       await Future.delayed(const Duration(milliseconds: 500));
-      final launchSuccess = await _zoomService.launchZoomMeeting(
-        zoomLink: testLink,
-        waitSeconds: 5,
-      );
-      if (!launchSuccess) {
-        setState(() => _lastResult = '❌ 1/7 단계 실패: Zoom 실행 실패');
-        return;
-      }
-
-      // 2단계: 자동 참가
-      setState(() => _lastResult = '2/7 🟢 자동 참가 중...');
-      await Future.delayed(const Duration(seconds: 3));
       final joinSuccess = await _zoomService.autoJoinZoomMeeting(
         zoomLink: testLink,
         userName: _userNameController.text,
         password: _passwordController.text.isEmpty ? null : _passwordController.text,
       );
       if (!joinSuccess) {
-        setState(() => _lastResult = '❌ 2/7 단계 실패: 자동 참가 실패');
+        setState(() => _lastResult = '❌ 1/6 단계 실패: Zoom 실행 및 자동 참가 실패');
         return;
       }
 
-      // 3단계: 오디오 참가
-      setState(() => _lastResult = '3/7 🔊 오디오 참가 중...');
+      // 2단계: 오디오 참가
+      setState(() => _lastResult = '2/6 🔊 오디오 참가 중...');
       await Future.delayed(const Duration(seconds: 2));
       final audioSuccess = await _zoomService.joinWithAudio();
       if (!audioSuccess) {
-        setState(() => _lastResult = '⚠️ 3/7 단계 경고: 오디오 참가 실패 (계속 진행)');
+        setState(() => _lastResult = '⚠️ 2/6 단계 경고: 오디오 참가 실패 (계속 진행)');
         await Future.delayed(const Duration(seconds: 1));
       }
 
-      // 4단계: 비디오 끄기
-      setState(() => _lastResult = '4/7 📹 비디오 끄기...');
+      // 3단계: 비디오 끄기
+      setState(() => _lastResult = '3/6 📹 비디오 끄기...');
       await Future.delayed(const Duration(seconds: 1));
       await _zoomService.setVideoEnabled(false);
 
-      // 5단계: 음소거
-      setState(() => _lastResult = '5/7 🔇 음소거 설정...');
+      // 4단계: 음소거
+      setState(() => _lastResult = '4/6 🔇 음소거 설정...');
       await Future.delayed(const Duration(seconds: 1));
       await _zoomService.setMuted(true);
 
-      // 6단계: 10초 대기
-      setState(() => _lastResult = '6/7 ⏱️ 10초 대기 중... (테스트 안정성 확인)');
+      // 5단계: 10초 대기
+      setState(() => _lastResult = '5/6 ⏱️ 10초 대기 중... (테스트 안정성 확인)');
       await Future.delayed(const Duration(seconds: 10));
 
-      // 7단계: Zoom 종료
-      setState(() => _lastResult = '7/7 🚪 Zoom 종료 중...');
+      // 6단계: Zoom 종료
+      setState(() => _lastResult = '6/6 🚪 Zoom 종료 중...');
       await Future.delayed(const Duration(seconds: 1));
       await _zoomService.closeZoomMeeting();
 
       setState(() {
         _lastResult = '✅ 전체 자동 테스트 성공!\n\n'
-            '모든 7단계가 완료되었습니다:\n'
-            '1. Zoom 실행 ✅\n'
-            '2. 자동 참가 ✅\n'
-            '3. 오디오 참가 ✅\n'
-            '4. 비디오 끄기 ✅\n'
-            '5. 음소거 설정 ✅\n'
-            '6. 10초 안정성 확인 ✅\n'
-            '7. Zoom 종료 ✅';
+            '모든 6단계가 완료되었습니다:\n'
+            '1. Zoom 실행 및 자동 참가 ✅\n'
+            '2. 오디오 참가 ✅\n'
+            '3. 비디오 끄기 ✅\n'
+            '4. 음소거 설정 ✅\n'
+            '5. 10초 안정성 확인 ✅\n'
+            '6. Zoom 종료 ✅';
       });
     } catch (e) {
       setState(() {
@@ -367,7 +356,7 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '저장된 링크로 모든 단계를 자동 실행합니다 (약 25초 소요)',
+                                '저장된 링크로 모든 단계를 자동 실행합니다 (약 20초 소요)',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.green.shade900,
