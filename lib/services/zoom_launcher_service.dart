@@ -99,41 +99,63 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. Zoom.exe 경로 찾기
-      final zoomExePath = _findZoomExecutable();
-      if (zoomExePath == null) {
-        _logger.e('❌ Zoom.exe를 찾을 수 없습니다');
-        _logger.e('💡 Zoom 앱을 설치해주세요: https://zoom.us/download');
-        throw Exception('Zoom 앱이 설치되어 있지 않습니다');
+      // 3. HTTP(S) 링크를 브라우저로 열기 (암호 자동 전달 보장)
+      // 핵심: zoommtg:// 프로토콜은 암호를 자동으로 전달하지 않을 수 있습니다.
+      // 브라우저에서 HTTP URL을 열면 Zoom이 내부적으로 암호를 처리하여
+      // 암호 입력창 없이 자동 참가가 가능합니다.
+      _logger.i('🌐 브라우저를 통해 Zoom 링크 실행 (암호 자동 전달)');
+      _logger.i('📞 회의 URL: $zoomLink');
+
+      try {
+        // HTTP(S) URL을 브라우저로 열기
+        // 브라우저가 Zoom 프로토콜 핸들러를 호출하면서 암호 정보를 자동으로 전달합니다
+        final process = await Process.start(
+          'rundll32',
+          ['url.dll,FileProtocolHandler', zoomLink],
+          runInShell: false,
+        );
+
+      _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
+      _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
+
+      // 브라우저 다이얼로그 자동 클릭 시도 (최대 5초)
+      _logger.i('🖱️ 브라우저 다이얼로그 자동 클릭 시도 중...');
+      bool dialogClicked = false;
+      for (int i = 0; i < 10; i++) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
+          if (automationBool(ZoomAutomationBindings.clickBrowserDialog())) {
+            _logger.i('✅ 브라우저 다이얼로그 클릭 성공 (${i + 1}회 시도)');
+            dialogClicked = true;
+            break;
+          }
+        }
       }
-      _logger.i('📍 Zoom.exe 경로: $zoomExePath');
-
-      // 4. HTTP URL을 zoommtg:// 프로토콜로 변환
-      // 예: https://zoom.us/j/123?pwd=abc
-      //  → zoommtg://zoom.us/join?action=join&confno=123&pwd=abc
-      final zoomProtocolUrl = _convertToZoomProtocol(zoomLink);
-      _logger.i('🔗 zoommtg:// URL 변환 완료');
-      _logger.d('📞 회의 URL: $zoomProtocolUrl');
-
-      // 5. Zoom.exe를 직접 실행 (--url 파라미터로 암호 포함)
-      // 이 방식은 브라우저를 거치지 않으므로 pwd 파라미터가 손실되지 않습니다
-      _logger.i('🚀 Zoom 클라이언트 직접 실행 (암호 자동 전달)');
-
-      final process = await Process.start(
-        zoomExePath,
-        ['--url=$zoomProtocolUrl'],
-        runInShell: false,
-      );
-
-      _logger.i('✅ Zoom 실행 완료: pid=${process.pid}');
-      _logger.i('🔑 암호가 URL에 포함되어 자동으로 전달됩니다');
+      if (!dialogClicked) {
+        _logger.d('ℹ️ 브라우저 다이얼로그를 찾지 못함 (수동 클릭 필요할 수 있음)');
+      }
+      } catch (e) {
+        // rundll32 실패 시 폴백: CMD start 사용
+        _logger.w('⚠️ rundll32 실패, CMD 폴백 시도: $e');
+        try {
+          final process = await Process.start(
+            'cmd',
+            ['/c', 'start', '', zoomLink],
+            runInShell: false,
+          );
+          _logger.i('✅ Zoom 링크 실행 완료 (CMD 폴백): pid=${process.pid}');
+        } catch (e2) {
+          _logger.e('❌ Zoom 링크 실행 실패: $e2');
+          rethrow;
+        }
+      }
       await _notifyTray('Zoom 실행', '회의 자동 입장을 준비합니다.');
 
-      // 6. Zoom 앱이 실행될 때까지 대기
+      // 5. Zoom 앱이 실행될 때까지 대기
       _logger.i('⏳ Zoom 앱 실행 대기 중... ($waitSeconds초)');
       await Future.delayed(Duration(seconds: waitSeconds));
 
-      // 7. Zoom 프로세스가 실행 중인지 확인
+      // 6. Zoom 프로세스가 실행 중인지 확인
       final isZoomRunning = await _isZoomProcessRunning();
       if (isZoomRunning) {
         _logger.i('✅ Zoom 앱 실행 확인됨');
@@ -223,91 +245,6 @@ class ZoomLauncherService {
     }
   }
 
-  /// Zoom.exe 실행 파일 경로 찾기
-  ///
-  /// Windows에서 Zoom 앱이 설치된 경로를 검색합니다.
-  /// @return Zoom.exe 경로 (찾지 못하면 null)
-  String? _findZoomExecutable() {
-    // Zoom 기본 설치 경로들
-    final possiblePaths = [
-      // 사용자 프로필 경로 (가장 일반적)
-      Platform.environment['USERPROFILE'] != null
-          ? '${Platform.environment['USERPROFILE']}\\AppData\\Roaming\\Zoom\\bin\\Zoom.exe'
-          : null,
-      // 또는 APPDATA 환경변수 사용
-      Platform.environment['APPDATA'] != null
-          ? '${Platform.environment['APPDATA']}\\Zoom\\bin\\Zoom.exe'
-          : null,
-      // Program Files (64비트)
-      r'C:\Program Files\Zoom\bin\Zoom.exe',
-      // Program Files (x86) (32비트)
-      r'C:\Program Files (x86)\Zoom\bin\Zoom.exe',
-    ];
-
-    for (final path in possiblePaths) {
-      if (path == null) continue;
-
-      final file = File(path);
-      if (file.existsSync()) {
-        _logger.d('✅ Zoom.exe 발견: $path');
-        return path;
-      }
-    }
-
-    _logger.w('⚠️ Zoom.exe를 찾을 수 없습니다 (기본 경로에서)');
-    return null;
-  }
-
-  /// HTTP(S) Zoom URL을 zoommtg:// 프로토콜 URL로 변환
-  ///
-  /// 예시:
-  /// - Input: https://us05web.zoom.us/j/8064406126?pwd=xxxxx
-  /// - Output: zoommtg://zoom.us/join?action=join&confno=8064406126&pwd=xxxxx
-  ///
-  /// @param httpUrl HTTP(S) 형식의 Zoom 회의 링크
-  /// @return zoommtg:// 프로토콜 URL
-  String _convertToZoomProtocol(String httpUrl) {
-    try {
-      final uri = Uri.parse(httpUrl);
-
-      // 경로에서 회의 ID 추출 (예: /j/8064406126)
-      String? meetingId;
-      for (final segment in uri.pathSegments) {
-        if (segment.isNotEmpty && RegExp(r'^\d+$').hasMatch(segment)) {
-          meetingId = segment;
-          break;
-        }
-      }
-
-      if (meetingId == null) {
-        _logger.w('⚠️ URL에서 회의 ID를 찾을 수 없습니다: $httpUrl');
-        // 폴백: 마지막 경로 세그먼트 사용
-        meetingId = uri.pathSegments.lastWhere(
-          (s) => s.isNotEmpty,
-          orElse: () => '',
-        );
-      }
-
-      // zoommtg:// URL 생성
-      final buffer = StringBuffer('zoommtg://zoom.us/join?action=join&confno=$meetingId');
-
-      // 암호가 있으면 추가
-      final password = uri.queryParameters['pwd'];
-      if (password != null && password.isNotEmpty) {
-        buffer.write('&pwd=$password');
-        _logger.d('🔑 암호 파라미터 포함: pwd=${password.substring(0, 5)}...');
-      }
-
-      final zoomUrl = buffer.toString();
-      _logger.d('🔗 변환 완료: $meetingId');
-      return zoomUrl;
-    } catch (e) {
-      _logger.e('❌ URL 변환 실패: $e');
-      // 폴백: 원본 URL 반환
-      return httpUrl;
-    }
-  }
-
   /// Zoom 회의 종료
   ///
   /// 녹화가 끝난 후 Zoom 앱을 종료합니다.
@@ -368,20 +305,29 @@ class ZoomLauncherService {
         ZoomAutomationStage.autoJoining,
         '자동으로 이름을 입력하고 참가 버튼을 누르고 있습니다.',
       );
-      final launched = await launchZoomMeeting(
-        zoomLink: zoomLink,
-        waitSeconds: initialWaitSeconds,
-      );
+      bool skipLaunch = false;
+      if (await _isZoomProcessRunning()) {
+        skipLaunch = true;
+        _logger.i('🔁 Zoom 프로세스가 이미 실행 중입니다. 중복 실행을 건너뜁니다.');
+        await Future.delayed(Duration(seconds: initialWaitSeconds));
+      }
 
-      if (!launched) {
-        _logger.e('❌ Zoom 실행 실패로 자동 진입 중단');
-        await _notifyTray('Zoom 실행 실패', '링크 실행에 실패했습니다. 수동 확인이 필요합니다.');
-        _updateAutomationState(
-          ZoomAutomationStage.failed,
-          'Zoom 실행에 실패해 자동 참가를 중단했습니다.',
-          isError: true,
+      if (!skipLaunch) {
+        final launched = await launchZoomMeeting(
+          zoomLink: zoomLink,
+          waitSeconds: initialWaitSeconds,
         );
-        return false;
+
+        if (!launched) {
+          _logger.e('❌ Zoom 실행 실패로 자동 진입 중단');
+          await _notifyTray('Zoom 실행 실패', '링크 실행에 실패했습니다. 수동 확인이 필요합니다.');
+          _updateAutomationState(
+            ZoomAutomationStage.failed,
+            'Zoom 실행에 실패해 자동 참가를 중단했습니다.',
+            isError: true,
+          );
+          return false;
+        }
       }
 
       // 브라우저를 통해 실행하는 경우 Zoom 창이 완전히 로드될 때까지 추가 대기
