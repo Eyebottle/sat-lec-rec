@@ -14,6 +14,7 @@ import 'package:logger/logger.dart';
 
 import '../ffi/zoom_automation_bindings.dart';
 import '../models/zoom_automation_state.dart';
+import 'log_diagnostics_service.dart';
 import 'tray_service.dart';
 
 /// Zoom 자동 실행 서비스
@@ -22,6 +23,8 @@ class ZoomLauncherService {
 
   final Logger _logger = Logger();
   final TrayService _trayService = TrayService();
+  final LogDiagnosticsService _logDiagnosticsService = LogDiagnosticsService();
+  bool _suspendTrayNotifications = false;
 
   static final ValueNotifier<ZoomAutomationState> _automationStateNotifier =
       ValueNotifier<ZoomAutomationState>(ZoomAutomationState.idle());
@@ -54,7 +57,71 @@ class ZoomLauncherService {
   /// 출력: 없음
   /// 예외: TrayService 내부에서 처리됨
   Future<void> _notifyTray(String title, String message) async {
+    if (_suspendTrayNotifications) {
+      _logger.w('🔕 트레이 알림 일시 중단: $title - $message');
+      return;
+    }
     await _trayService.showNotification(title: title, message: message);
+  }
+
+  /// 최근 로그를 분석해 자동 복구가 필요한지 판단하고 필요한 조치를 실행한다.
+  /// 입력: [zoomLink], [userName], [password], [initialWaitSeconds]는 재시도 시 활용할 파라미터.
+  /// 출력: 복구 조치 후 재시도가 필요하면 true.
+  /// 예외: 내부에서 발생한 예외는 로그만 남기고 false를 반환한다.
+  Future<bool> _attemptSelfHealing({
+    required String zoomLink,
+    required String userName,
+    String? password,
+    required int initialWaitSeconds,
+  }) async {
+    try {
+      final issues = await _logDiagnosticsService.analyzeRecentIssues();
+      if (issues.isEmpty) {
+        return false;
+      }
+      _logger.d(
+        '🩺 자가 복구 입력 - user:$userName, passwordProvided:${password != null}',
+      );
+
+      bool shouldRetry = false;
+
+      for (final issue in issues) {
+        switch (issue.type) {
+          case LogIssueType.zoomProcessMissing:
+            _logger.w('🩺 자가 복구: Zoom 프로세스가 감지되지 않아 재실행을 준비합니다.');
+            await closeZoomMeeting(force: true);
+            await Future.delayed(const Duration(seconds: 2));
+            final relaunched = await launchZoomMeeting(
+              zoomLink: zoomLink,
+              waitSeconds: initialWaitSeconds + 5,
+            );
+            shouldRetry = shouldRetry || relaunched;
+            break;
+          case LogIssueType.autoJoinTimeout:
+            _logger.w('🩺 자가 복구: 참가 버튼 탐색 실패 → 전체 플로우를 초기화합니다.');
+            await closeZoomMeeting(force: true);
+            await Future.delayed(const Duration(seconds: 3));
+            final relaunched = await launchZoomMeeting(
+              zoomLink: zoomLink,
+              waitSeconds: initialWaitSeconds + 8,
+            );
+            shouldRetry = shouldRetry || relaunched;
+            break;
+          case LogIssueType.winToastThreadViolation:
+            _logger.w('🩺 자가 복구: WinToast 스레드 오류 감지 → 알림을 임시 비활성화합니다.');
+            _suspendTrayNotifications = true;
+            break;
+        }
+      }
+
+      if (!shouldRetry) {
+        _logger.w('🩺 자가 복구 조치가 필요하지 않거나 실행되지 않았습니다.');
+      }
+      return shouldRetry;
+    } catch (e, stackTrace) {
+      _logger.e('❌ 자가 복구 중 예외 발생', error: e, stackTrace: stackTrace);
+      return false;
+    }
   }
 
   void _updateAutomationState(
@@ -99,8 +166,18 @@ class ZoomLauncherService {
         // 경고만 하고 계속 진행 (사용자 지정 Zoom 도메인 지원)
       }
 
-      // 3. HTTP(S) 링크를 브라우저로 열기 (암호 자동 전달 보장)
-      // 핵심: zoommtg:// 프로토콜은 암호를 자동으로 전달하지 않을 수 있습니다.
+      // 3. HTTP(S) 링크를 브라우저로 직접 열기 (암호 자동 전달 보장)
+      //
+      // ⚠️ 중요: zoommtg:// 프로토콜은 사용하지 않습니다!
+      // 이유:
+      //   1. CMD가 URL의 & 문자를 명령 구분자로 해석하여 파싱 오류 발생
+      //   2. Zoom 클라이언트가 zoommtg:// URL의 pwd 쿼리 파라미터를 무시함
+      //   3. 결과적으로 암호 입력창이 반복해서 나타나는 문제 발생
+      //
+      // 해결책: 항상 HTTP(S) URL을 브라우저로 실행 (사용자 직접 클릭과 동일)
+      //   - 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 올바르게 전달
+      //   - 과거 커밋 31620dd에서 동일 문제 해결 (회귀 버그 방지)
+      //
       // 브라우저에서 HTTP URL을 열면 Zoom이 내부적으로 암호를 처리하여
       // 암호 입력창 없이 자동 참가가 가능합니다.
       _logger.i('🌐 브라우저를 통해 Zoom 링크 실행 (암호 자동 전달)');
@@ -108,32 +185,31 @@ class ZoomLauncherService {
 
       try {
         // HTTP(S) URL을 브라우저로 열기
-        // 브라우저가 Zoom 프로토콜 핸들러를 호출하면서 암호 정보를 자동으로 전달합니다
         final process = await Process.start(
           'rundll32',
           ['url.dll,FileProtocolHandler', zoomLink],
           runInShell: false,
         );
 
-      _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
-      _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
+        _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
+        _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
 
-      // 브라우저 다이얼로그 자동 클릭 시도 (최대 5초)
-      _logger.i('🖱️ 브라우저 다이얼로그 자동 클릭 시도 중...');
-      bool dialogClicked = false;
-      for (int i = 0; i < 10; i++) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
-          if (automationBool(ZoomAutomationBindings.clickBrowserDialog())) {
-            _logger.i('✅ 브라우저 다이얼로그 클릭 성공 (${i + 1}회 시도)');
-            dialogClicked = true;
-            break;
+        // 브라우저 다이얼로그 자동 클릭 시도 (최대 5초)
+        _logger.i('🖱️ 브라우저 다이얼로그 자동 클릭 시도 중...');
+        bool dialogClicked = false;
+        for (int i = 0; i < 10; i++) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
+            if (automationBool(ZoomAutomationBindings.clickBrowserDialog())) {
+              _logger.i('✅ 브라우저 다이얼로그 클릭 성공 (${i + 1}회 시도)');
+              dialogClicked = true;
+              break;
+            }
           }
         }
-      }
-      if (!dialogClicked) {
-        _logger.d('ℹ️ 브라우저 다이얼로그를 찾지 못함 (수동 클릭 필요할 수 있음)');
-      }
+        if (!dialogClicked) {
+          _logger.d('ℹ️ 브라우저 다이얼로그를 찾지 못함 (수동 클릭 필요할 수 있음)');
+        }
       } catch (e) {
         // rundll32 실패 시 폴백: CMD start 사용
         _logger.w('⚠️ rundll32 실패, CMD 폴백 시도: $e');
@@ -292,13 +368,41 @@ class ZoomLauncherService {
   /// 출력: 자동 참가에 성공하면 true, 중간 단계에서 막히면 false를 돌려준다.
   /// 예외: Windows UI Automation 초기화 실패나 네이티브 오류가 발생하면 false를 반환하며
   ///       로그에 스택 정보를 남긴다.
+  /// 추가: [enableSelfHealing]이 true면 실패 시 로그를 기반으로 자가 복구를 시도한 뒤 재실행한다.
   Future<bool> autoJoinZoomMeeting({
     required String zoomLink,
     String userName = '녹화 시스템',
     String? password,
     int initialWaitSeconds = 5,
     int maxAttempts = 30,
+    bool enableSelfHealing = true,
   }) async {
+    Future<bool> retryWithHealing(String reason) async {
+      if (!enableSelfHealing) {
+        _logger.w('🩺 자동 복구가 이미 한 번 시도되어 더 이상 재시도하지 않습니다. (사유: $reason)');
+        return false;
+      }
+      final healed = await _attemptSelfHealing(
+        zoomLink: zoomLink,
+        userName: userName,
+        password: password,
+        initialWaitSeconds: initialWaitSeconds,
+      );
+      if (!healed) {
+        _logger.w('🩺 자동 복구에 실패했습니다. (사유: $reason)');
+        return false;
+      }
+      _logger.i('🩺 자동 복구 완료, 재실행을 시작합니다. (사유: $reason)');
+      return autoJoinZoomMeeting(
+        zoomLink: zoomLink,
+        userName: userName,
+        password: password,
+        initialWaitSeconds: initialWaitSeconds + 3,
+        maxAttempts: maxAttempts,
+        enableSelfHealing: false,
+      );
+    }
+
     try {
       _logger.i('🤖 Zoom 자동 진입 준비 (사용자 이름: $userName)');
       _updateAutomationState(
@@ -324,7 +428,7 @@ class ZoomLauncherService {
           'Zoom 실행에 실패해 자동 참가를 중단했습니다.',
           isError: true,
         );
-        return false;
+        return retryWithHealing('zoom-launch-failed');
       }
 
       // 브라우저를 통해 실행하는 경우 Zoom 창이 완전히 로드될 때까지 추가 대기
@@ -352,7 +456,7 @@ class ZoomLauncherService {
             'Windows UI Automation 초기화에 실패했습니다. Zoom 창이 열렸는지 확인하세요.',
             isError: true,
           );
-          return false;
+          return retryWithHealing('ui-automation-init');
         }
       }
 
@@ -426,7 +530,7 @@ class ZoomLauncherService {
         '자동 참가 타임아웃: 참가 버튼을 찾지 못했습니다.',
         isError: true,
       );
-      return false;
+      return retryWithHealing('join-timeout');
     } catch (e, stackTrace) {
       _logger.e('❌ Zoom 자동 진입 중 예외 발생', error: e, stackTrace: stackTrace);
       _updateAutomationState(
@@ -434,6 +538,10 @@ class ZoomLauncherService {
         '자동 참가 중 예외가 발생했습니다.',
         isError: true,
       );
+      final retried = await retryWithHealing('auto-join-exception');
+      if (retried) {
+        return true;
+      }
       return false;
     } finally {
       ZoomAutomationBindings.cleanupUIAutomation();
