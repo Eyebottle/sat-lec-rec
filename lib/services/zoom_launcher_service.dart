@@ -475,11 +475,13 @@ class ZoomLauncherService {
       }
 
       // 암호 입력 시도
-      // ⚠️ 중요: 브라우저를 통해 실행해도 Zoom이 pwd를 무시하는 경우가 있으므로
-      //         UI Automation으로 직접 암호를 입력하는 것이 더 안정적입니다.
+      // ⚠️ 참고: URL에 pwd 파라미터가 포함된 경우 브라우저가 Zoom으로 자동 전달하므로
+      //         암호 입력창이 나타나지 않습니다. (사용자 피드백으로 확인됨)
+      //         따라서 빠른 확인만 수행하고 참가 버튼 검색으로 넘어갑니다.
       if (effectivePassword != null && effectivePassword.isNotEmpty) {
-        _logger.i('🔑 회의 암호 입력 시도 중...');
-        const passwordAttempts = 20; // 암호 입력창 대기 시간 증가 (10초)
+        _logger.i('🔑 회의 암호 입력창 확인 중...');
+        _logger.d('💡 URL에 암호가 포함된 경우 브라우저가 자동으로 처리합니다');
+        const passwordAttempts = 5; // 빠른 확인 (2.5초)
         bool passwordEntered = false;
 
         for (int i = 1; i <= passwordAttempts; i++) {
@@ -487,7 +489,7 @@ class ZoomLauncherService {
           try {
             final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
             if (automationBool(passwordResult)) {
-              _logger.i('✅ 암호 입력 및 확인 완료 ($i회 시도)');
+              _logger.i('✅ 암호 입력창을 발견하여 암호 입력 완료 ($i회 시도)');
               passwordEntered = true;
               // 암호 확인 후 참가 버튼이 나타날 때까지 대기
               await Future.delayed(const Duration(milliseconds: 1000));
@@ -498,13 +500,13 @@ class ZoomLauncherService {
           }
 
           if (i < passwordAttempts) {
-            _logger.d('⏳ 암호 입력창 대기 중... ($i/$passwordAttempts)');
+            _logger.d('⏳ 암호 입력창 확인 중... ($i/$passwordAttempts)');
             await Future.delayed(const Duration(milliseconds: 500));
           }
         }
 
         if (!passwordEntered) {
-          _logger.w('⚠️ 암호 입력창을 찾지 못했습니다 (브라우저를 통해 이미 처리되었거나 공개 강의일 수 있음)');
+          _logger.i('✅ 암호 입력창이 나타나지 않음 (브라우저가 URL의 pwd를 자동 전달한 것으로 판단)');
         }
       } else {
         _logger.d('ℹ️ 암호가 제공되지 않음 (공개 회의 또는 암호 없는 회의)');
