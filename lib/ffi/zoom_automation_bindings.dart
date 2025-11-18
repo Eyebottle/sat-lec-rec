@@ -40,7 +40,7 @@ class ZoomAutomationBindings {
       .asFunction();
 
   /// Zoom 창에서 암호 입력 후 확인 버튼 클릭
-  /// 입력: password 문자열 (Pointer<Utf16>)
+  /// 입력: password 문자열 (`Pointer<Utf16>`)
   /// 출력: 성공 시 1, 실패 시 0
   /// 예외: 암호 필드나 확인 버튼을 찾을 수 없으면 0
   static final DartEnterNameAndJoin enterPassword = _lib
