@@ -453,8 +453,181 @@ queryParameters: uri.queryParameters,  // ⚠️ pwd 포함 (회귀 버그!)
 - ✅ 회귀 방지 주석 추가 (14줄)
 - ✅ Git 커밋 완료 (커밋 5e98ef3)
 - ✅ 진단 문서 작성 완료
-- **상태: 해결 완료** ✨
+- ~~**상태: 해결 완료**~~ ❌ 여전히 문제 발생
 - 다음: Windows에서 테스트 실행 권장
+
+**2025-01-18 새벽 - 테스트 실패 및 추가 분석** ⚠️
+- ❌ 테스트 결과: 암호 입력창 여전히 나타남
+- ❌ 30초 동안 참가 버튼을 찾지 못함
+- 🔍 **새로운 근본 원인 발견**: 브라우저가 pwd 파라미터를 전달했지만 Zoom이 무시함
+- 🔍 **코드 분석 결과**: password 파라미터가 null이면 암호 입력을 시도하지 않음
+- 💡 **실제 문제**: URL에 pwd가 있어도 함수에 password로 전달되지 않음
+- 💡 **해결책**: URL에서 pwd 추출 → UI Automation으로 암호 입력
+
+---
+
+## 🚨 10단계: 실제 문제의 근본 원인 (2025-01-18 분석)
+
+### 테스트 로그 분석
+
+사용자가 테스트한 URL:
+```
+https://us05web.zoom.us/j/8064406126?pwd=0XQLpDgrVgzjEmFa8XJlUD5mXffNxc.1
+```
+
+**테스트 결과 로그:**
+```
+💡 🌐 브라우저를 통해 Zoom 링크 실행 (암호 자동 전달)
+💡 📞 회의 URL: https://us05web.zoom.us/j/8064406126?pwd=0XQLpDgrVgzjEmFa8XJlUD5mXffNxc.1
+💡 ✅ Zoom 링크 실행 완료: pid=41804
+🐛 ℹ️ 브라우저 다이얼로그를 찾지 못함
+🐛 ℹ️ 별도 암호가 제공되지 않음 (URL에 포함된 암호가 브라우저를 통해 자동 전달됨)
+🐛 ⏳ 참가 버튼을 찾지 못함. 재시도 중... (1/30)
+...
+! ! Zoom 자동 진입 타임아웃 (30초 경과)
+```
+
+**사용자 보고:**
+> "회의 암호를 입력하라고 하네"
+
+### 실제로 일어난 일
+
+1. ✅ HTTP URL을 브라우저로 실행 (zoommtg:// 사용 안 함)
+2. ✅ 브라우저가 Zoom 앱을 실행
+3. ❌ **Zoom이 pwd 파라미터를 무시함** (이유 불명)
+4. ❌ 암호 입력 다이얼로그가 나타남
+5. ❌ 코드가 암호 입력을 시도하지 않음 (password=null이므로)
+6. ❌ 참가 버튼 대신 암호 입력 다이얼로그만 존재
+7. ❌ 30초 동안 참가 버튼을 찾지 못하고 타임아웃
+
+### 왜 암호 입력을 시도하지 않았는가?
+
+**코드 분석 (zoom_launcher_service.dart:468-496줄):**
+
+```dart
+// 암호 입력 시도 (암호가 제공된 경우만)
+if (password != null && password.isNotEmpty) {  // ⚠️ 문제!
+  _logger.i('🔑 회의 암호 입력 시도 중...');
+  // ... 암호 입력 로직
+} else {
+  _logger.d('ℹ️ 별도 암호가 제공되지 않음 (URL에 포함된 암호가 브라우저를 통해 자동 전달됨)');
+  // ⚠️ 실제로는 자동 전달되지 않았는데 입력도 안 함!
+}
+```
+
+**함수 호출:**
+```dart
+autoJoinZoomMeeting(
+  zoomLink: 'https://zoom.us/j/123?pwd=abc',  // URL에 pwd 있음
+  userName: '녹화 시스템',
+  password: null,  // ⚠️ 별도로 제공 안 함
+);
+```
+
+**결과:**
+- URL에는 `pwd=0XQLpDgrVgzjEmFa8XJlUD5mXffNxc.1`이 있음
+- 하지만 `password` 파라미터는 `null`
+- 따라서 암호 입력을 시도하지 않음
+- Zoom은 브라우저를 통해서도 pwd를 처리하지 못함 (보안 정책 또는 형식 문제)
+
+### 해결 방안
+
+**Option 1: URL에서 pwd 파라미터 자동 추출** ⭐⭐⭐ (최우선 추천)
+
+```dart
+Future<bool> autoJoinZoomMeeting({
+  required String zoomLink,
+  required String userName,
+  String? password,  // null이면 URL에서 추출
+  // ...
+}) async {
+  // 1. password가 제공되지 않았으면 URL에서 pwd 추출
+  String? effectivePassword = password;
+  if (effectivePassword == null || effectivePassword.isEmpty) {
+    final uri = Uri.tryParse(zoomLink);
+    if (uri != null && uri.queryParameters.containsKey('pwd')) {
+      effectivePassword = uri.queryParameters['pwd'];
+      _logger.i('🔑 URL에서 암호 추출: ${effectivePassword?.substring(0, 5)}...');
+    }
+  }
+
+  // 2. Zoom 실행 (브라우저 사용)
+  await launchZoomMeeting(...);
+
+  // 3. 암호 입력 시도 (추출된 암호 포함)
+  if (effectivePassword != null && effectivePassword.isNotEmpty) {
+    _logger.i('🔑 회의 암호 입력 시도 중...');
+    // UI Automation으로 암호 입력
+    for (int i = 1; i <= passwordAttempts; i++) {
+      final passwordPointer = effectivePassword.toNativeUtf16();
+      try {
+        final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
+        if (automationBool(passwordResult)) {
+          _logger.i('✅ 암호 입력 성공 ($i회 시도)');
+          // 암호 확인 버튼도 클릭 필요!
+          break;
+        }
+      } finally {
+        malloc.free(passwordPointer);
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+  }
+
+  // 4. 이름 입력 및 참가 버튼 클릭
+  // ...
+}
+```
+
+**장점:**
+- URL만 있으면 자동으로 암호 처리
+- 기존 호출 코드 수정 불필요
+- 브라우저 방식과 UI Automation 방식 모두 지원
+
+**Option 2: 항상 암호 입력 시도 (필드가 있으면 입력)**
+
+```dart
+// URL에서 pwd 추출
+final pwd = Uri.tryParse(zoomLink)?.queryParameters['pwd'];
+
+// 암호 필드를 찾아서 입력 시도
+if (pwd != null) {
+  // 암호 입력 다이얼로그가 나타날 때까지 대기
+  for (int i = 1; i <= 20; i++) {
+    final passwordPointer = pwd.toNativeUtf16();
+    try {
+      if (automationBool(ZoomAutomationBindings.enterPassword(passwordPointer))) {
+        _logger.i('✅ 암호 입력 성공');
+        // 확인 버튼 클릭
+        await Future.delayed(const Duration(milliseconds: 300));
+        ZoomAutomationBindings.clickPasswordConfirmButton();
+        break;
+      }
+    } finally {
+      malloc.free(passwordPointer);
+    }
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+}
+```
+
+**장점:**
+- 더 적극적으로 암호 입력 시도
+- 암호 다이얼로그 감지 및 처리
+
+### 추가 조사 필요 사항
+
+1. **왜 브라우저가 pwd를 전달하지 못했는가?**
+   - Zoom 최신 버전에서 보안 정책 변경?
+   - `pwd` 파라미터 형식이 변경됨?
+   - 특정 도메인(`us05web.zoom.us`)에서만 문제?
+
+2. **암호 확인 버튼 클릭이 필요한가?**
+   - C++ 코드에 `ZoomAutomation_EnterPassword()` 있음
+   - 하지만 확인 버튼 클릭 함수도 호출해야 할 수 있음
+
+3. **암호 입력 후 대기 시간**
+   - 암호 입력 후 참가 버튼이 나타나기까지 시간 필요?
 
 ---
 

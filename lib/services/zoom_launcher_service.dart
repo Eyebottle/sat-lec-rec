@@ -462,21 +462,35 @@ class ZoomLauncherService {
 
       final safeName = userName.trim().isEmpty ? '녹화 시스템' : userName.trim();
 
-      // 암호 입력 시도 (암호가 제공된 경우만)
-      // 브라우저를 통해 실행하면 암호가 자동으로 전달되므로, 암호 입력창이 나타나지 않을 수 있습니다.
-      // 하지만 수동으로 암호를 제공한 경우(URL에 없고 별도 파라미터로 전달) 시도합니다.
-      if (password != null && password.isNotEmpty) {
-        _logger.i('🔑 회의 암호 입력 시도 중... (브라우저를 통해 실행했다면 이미 처리되었을 수 있음)');
-        const passwordAttempts = 10; // 대기 시간 증가 (5초)
+      // 암호 추출: password 파라미터가 없으면 URL에서 pwd 추출
+      String? effectivePassword = password;
+      if (effectivePassword == null || effectivePassword.isEmpty) {
+        final uri = Uri.tryParse(zoomLink);
+        if (uri != null && uri.queryParameters.containsKey('pwd')) {
+          effectivePassword = uri.queryParameters['pwd'];
+          if (effectivePassword != null && effectivePassword.isNotEmpty) {
+            _logger.i('🔑 URL에서 암호 파라미터 추출: ${effectivePassword.substring(0, 5)}...');
+          }
+        }
+      }
+
+      // 암호 입력 시도
+      // ⚠️ 중요: 브라우저를 통해 실행해도 Zoom이 pwd를 무시하는 경우가 있으므로
+      //         UI Automation으로 직접 암호를 입력하는 것이 더 안정적입니다.
+      if (effectivePassword != null && effectivePassword.isNotEmpty) {
+        _logger.i('🔑 회의 암호 입력 시도 중...');
+        const passwordAttempts = 20; // 암호 입력창 대기 시간 증가 (10초)
         bool passwordEntered = false;
 
         for (int i = 1; i <= passwordAttempts; i++) {
-          final passwordPointer = password.toNativeUtf16();
+          final passwordPointer = effectivePassword.toNativeUtf16();
           try {
             final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
             if (automationBool(passwordResult)) {
-              _logger.i('✅ 암호 입력 성공 ($i회 시도)');
+              _logger.i('✅ 암호 입력 및 확인 완료 ($i회 시도)');
               passwordEntered = true;
+              // 암호 확인 후 참가 버튼이 나타날 때까지 대기
+              await Future.delayed(const Duration(milliseconds: 1000));
               break;
             }
           } finally {
@@ -484,15 +498,16 @@ class ZoomLauncherService {
           }
 
           if (i < passwordAttempts) {
+            _logger.d('⏳ 암호 입력창 대기 중... ($i/$passwordAttempts)');
             await Future.delayed(const Duration(milliseconds: 500));
           }
         }
 
         if (!passwordEntered) {
-          _logger.d('ℹ️ 암호 필드를 찾지 못함 (브라우저를 통해 이미 처리되었거나 공개 강의일 수 있음)');
+          _logger.w('⚠️ 암호 입력창을 찾지 못했습니다 (브라우저를 통해 이미 처리되었거나 공개 강의일 수 있음)');
         }
       } else {
-        _logger.d('ℹ️ 별도 암호가 제공되지 않음 (URL에 포함된 암호가 브라우저를 통해 자동 전달됨)');
+        _logger.d('ℹ️ 암호가 제공되지 않음 (공개 회의 또는 암호 없는 회의)');
       }
 
       _logger.i('👤 이름 입력 및 참가 버튼 클릭 시도 시작...');
