@@ -205,7 +205,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     // 폼 컨트롤러
     final nameController = TextEditingController(text: existingSchedule?.name ?? '');
     final zoomLinkController = TextEditingController(text: existingSchedule?.zoomLink ?? '');
-    final passwordController = TextEditingController(text: existingSchedule?.password ?? '');
     int selectedDayOfWeek = existingSchedule?.dayOfWeek ?? 6; // 기본: 토요일
     TimeOfDay selectedTime = existingSchedule?.startTime ?? const TimeOfDay(hour: 10, minute: 0);
     int durationMinutes = existingSchedule?.durationMinutes ?? 120;
@@ -296,23 +295,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 // Zoom 링크
                 TextField(
                   controller: zoomLinkController,
-                  decoration: const InputDecoration(
-                    labelText: 'Zoom 링크',
-                    hintText: 'https://zoom.us/j/...',
-                  ),
                   keyboardType: TextInputType.url,
-                ),
-                const SizedBox(height: 16),
-
-                // Zoom 회의 암호 (선택 사항)
-                TextField(
-                  controller: passwordController,
-                  obscureText: true,
                   decoration: const InputDecoration(
-                    labelText: 'Zoom 회의 암호 (선택 사항)',
-                    hintText: '암호가 필요한 경우에만 입력',
-                    helperText: '공개 회의는 비워두세요',
-                    prefixIcon: Icon(Icons.lock_outline),
+                    labelText: 'Zoom 링크 (pwd 파라미터 포함)',
+                    hintText: 'https://zoom.us/j/xxxxx?pwd=yyyyy',
+                    helperText: '암호가 필요한 경우 URL에 pwd 파라미터 포함',
                   ),
                 ),
               ],
@@ -349,9 +336,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   startTime: selectedTime,
                   durationMinutes: durationMinutes,
                   zoomLink: zoomLinkController.text.trim(),
-                  password: passwordController.text.trim().isEmpty
-                      ? null
-                      : passwordController.text.trim(),
                   isEnabled: existingSchedule?.isEnabled ?? true,
                   createdAt: existingSchedule?.createdAt,
                 );
