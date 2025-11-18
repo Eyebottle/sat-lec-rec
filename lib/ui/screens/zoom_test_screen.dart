@@ -144,7 +144,6 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
       final joinSuccess = await _zoomService.autoJoinZoomMeeting(
         zoomLink: testLink,
         userName: _userNameController.text,
-        password: _passwordController.text.isEmpty ? null : _passwordController.text,
       );
       if (!joinSuccess) {
         setState(() => _lastResult = '❌ 1/6 단계 실패: Zoom 실행 및 자동 참가 실패');
@@ -559,7 +558,6 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
                 () => _zoomService.autoJoinZoomMeeting(
                   zoomLink: _zoomLinkController.text,
                   userName: _userNameController.text,
-                  password: _passwordController.text.isEmpty ? null : _passwordController.text,
                 ),
               ),
             ),

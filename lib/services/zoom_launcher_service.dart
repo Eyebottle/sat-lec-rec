@@ -65,13 +65,12 @@ class ZoomLauncherService {
   }
 
   /// 최근 로그를 분석해 자동 복구가 필요한지 판단하고 필요한 조치를 실행한다.
-  /// 입력: [zoomLink], [userName], [password], [initialWaitSeconds]는 재시도 시 활용할 파라미터.
+  /// 입력: [zoomLink], [userName], [initialWaitSeconds]는 재시도 시 활용할 파라미터.
   /// 출력: 복구 조치 후 재시도가 필요하면 true.
   /// 예외: 내부에서 발생한 예외는 로그만 남기고 false를 반환한다.
   Future<bool> _attemptSelfHealing({
     required String zoomLink,
     required String userName,
-    String? password,
     required int initialWaitSeconds,
   }) async {
     try {
@@ -80,7 +79,7 @@ class ZoomLauncherService {
         return false;
       }
       _logger.d(
-        '🩺 자가 복구 입력 - user:$userName, passwordProvided:${password != null}',
+        '🩺 자가 복구 입력 - user:$userName',
       );
 
       bool shouldRetry = false;
@@ -363,16 +362,18 @@ class ZoomLauncherService {
   }
 
   /// Zoom UI Automation을 사용해 이름 입력과 참가 버튼 클릭까지 수행한다.
-  /// 입력: [zoomLink]는 접속할 회의 주소, [userName]은 참가 시 표시될 이름,
-  /// [password]는 회의 암호 (선택 사항), [initialWaitSeconds]는 Zoom 실행 후 UI 자동화까지 기다릴 시간이다.
+  /// 입력: [zoomLink]는 접속할 회의 주소 (pwd 파라미터 포함 권장), [userName]은 참가 시 표시될 이름,
+  /// [initialWaitSeconds]는 Zoom 실행 후 UI 자동화까지 기다릴 시간이다.
   /// 출력: 자동 참가에 성공하면 true, 중간 단계에서 막히면 false를 돌려준다.
   /// 예외: Windows UI Automation 초기화 실패나 네이티브 오류가 발생하면 false를 반환하며
   ///       로그에 스택 정보를 남긴다.
   /// 추가: [enableSelfHealing]이 true면 실패 시 로그를 기반으로 자가 복구를 시도한 뒤 재실행한다.
+  ///
+  /// ⚠️ 참고: 회의 암호는 URL에 pwd 파라미터로 포함되어야 합니다.
+  ///         브라우저가 자동으로 Zoom 앱에 전달하므로 별도 입력 불필요.
   Future<bool> autoJoinZoomMeeting({
     required String zoomLink,
     String userName = '녹화 시스템',
-    String? password,
     int initialWaitSeconds = 5,
     int maxAttempts = 30,
     bool enableSelfHealing = true,
@@ -385,7 +386,6 @@ class ZoomLauncherService {
       final healed = await _attemptSelfHealing(
         zoomLink: zoomLink,
         userName: userName,
-        password: password,
         initialWaitSeconds: initialWaitSeconds,
       );
       if (!healed) {
@@ -396,7 +396,6 @@ class ZoomLauncherService {
       return autoJoinZoomMeeting(
         zoomLink: zoomLink,
         userName: userName,
-        password: password,
         initialWaitSeconds: initialWaitSeconds + 3,
         maxAttempts: maxAttempts,
         enableSelfHealing: false,
@@ -462,55 +461,9 @@ class ZoomLauncherService {
 
       final safeName = userName.trim().isEmpty ? '녹화 시스템' : userName.trim();
 
-      // 암호 추출: password 파라미터가 없으면 URL에서 pwd 추출
-      String? effectivePassword = password;
-      if (effectivePassword == null || effectivePassword.isEmpty) {
-        final uri = Uri.tryParse(zoomLink);
-        if (uri != null && uri.queryParameters.containsKey('pwd')) {
-          effectivePassword = uri.queryParameters['pwd'];
-          if (effectivePassword != null && effectivePassword.isNotEmpty) {
-            _logger.i('🔑 URL에서 암호 파라미터 추출: ${effectivePassword.substring(0, 5)}...');
-          }
-        }
-      }
-
-      // 암호 입력 시도
-      // ⚠️ 참고: URL에 pwd 파라미터가 포함된 경우 브라우저가 Zoom으로 자동 전달하므로
-      //         암호 입력창이 나타나지 않습니다. (사용자 피드백으로 확인됨)
-      //         따라서 빠른 확인만 수행하고 참가 버튼 검색으로 넘어갑니다.
-      if (effectivePassword != null && effectivePassword.isNotEmpty) {
-        _logger.i('🔑 회의 암호 입력창 확인 중...');
-        _logger.d('💡 URL에 암호가 포함된 경우 브라우저가 자동으로 처리합니다');
-        const passwordAttempts = 5; // 빠른 확인 (2.5초)
-        bool passwordEntered = false;
-
-        for (int i = 1; i <= passwordAttempts; i++) {
-          final passwordPointer = effectivePassword.toNativeUtf16();
-          try {
-            final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
-            if (automationBool(passwordResult)) {
-              _logger.i('✅ 암호 입력창을 발견하여 암호 입력 완료 ($i회 시도)');
-              passwordEntered = true;
-              // 암호 확인 후 참가 버튼이 나타날 때까지 대기
-              await Future.delayed(const Duration(milliseconds: 1000));
-              break;
-            }
-          } finally {
-            malloc.free(passwordPointer);
-          }
-
-          if (i < passwordAttempts) {
-            _logger.d('⏳ 암호 입력창 확인 중... ($i/$passwordAttempts)');
-            await Future.delayed(const Duration(milliseconds: 500));
-          }
-        }
-
-        if (!passwordEntered) {
-          _logger.i('✅ 암호 입력창이 나타나지 않음 (브라우저가 URL의 pwd를 자동 전달한 것으로 판단)');
-        }
-      } else {
-        _logger.d('ℹ️ 암호가 제공되지 않음 (공개 회의 또는 암호 없는 회의)');
-      }
+      // ⚠️ 참고: 회의 암호는 URL에 pwd 파라미터로 포함되어야 합니다.
+      //         브라우저가 자동으로 Zoom 앱에 전달하므로 별도 입력 불필요.
+      //         (사용자 피드백: 암호 입력창이 나타나지 않고 자동 처리됨)
 
       _logger.i('👤 이름 입력 및 참가 버튼 클릭 시도 시작...');
       for (int attempt = 1; attempt <= maxAttempts; attempt++) {

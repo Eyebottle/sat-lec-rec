@@ -41,11 +41,8 @@ class RecordingSchedule {
   /// 녹화 시간 (분 단위)
   final int durationMinutes;
 
-  /// Zoom 링크
+  /// Zoom 링크 (pwd 파라미터 포함 권장)
   final String zoomLink;
-
-  /// Zoom 회의 암호 (선택 사항)
-  final String? password;
 
   /// 활성화 여부
   final bool isEnabled;
@@ -65,7 +62,6 @@ class RecordingSchedule {
     required this.startTime,
     required this.durationMinutes,
     required this.zoomLink,
-    this.password,
     this.isEnabled = true,
     DateTime? createdAt,
     this.lastExecutedAt,
@@ -168,7 +164,6 @@ class RecordingSchedule {
       'startTimeMinute': startTime.minute,
       'durationMinutes': durationMinutes,
       'zoomLink': zoomLink,
-      'password': password,
       'isEnabled': isEnabled,
       'createdAt': createdAt.toIso8601String(),
       'lastExecutedAt': lastExecutedAt?.toIso8601String(),
@@ -197,7 +192,7 @@ class RecordingSchedule {
       ),
       durationMinutes: json['durationMinutes'] as int,
       zoomLink: json['zoomLink'] as String,
-      password: json['password'] as String?,
+      // password 필드는 하위 호환성을 위해 무시 (URL에 pwd 포함 권장)
       isEnabled: json['isEnabled'] as bool? ?? true,
       createdAt: DateTime.parse(json['createdAt'] as String),
       lastExecutedAt: json['lastExecutedAt'] != null
@@ -216,7 +211,6 @@ class RecordingSchedule {
     TimeOfDay? startTime,
     int? durationMinutes,
     String? zoomLink,
-    String? password,
     bool? isEnabled,
     DateTime? createdAt,
     DateTime? lastExecutedAt,
@@ -230,7 +224,6 @@ class RecordingSchedule {
       startTime: startTime ?? this.startTime,
       durationMinutes: durationMinutes ?? this.durationMinutes,
       zoomLink: zoomLink ?? this.zoomLink,
-      password: password ?? this.password,
       isEnabled: isEnabled ?? this.isEnabled,
       createdAt: createdAt ?? this.createdAt,
       lastExecutedAt: lastExecutedAt ?? this.lastExecutedAt,

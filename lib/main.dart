@@ -778,7 +778,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     final success = await _zoomLauncherService.autoJoinZoomMeeting(
       zoomLink: zoomLink,
       userName: 'sat-lec-rec 재시도',
-      password: null, // 수동 재시도는 암호 없이 시도 (필요시 UI 추가 가능)
       initialWaitSeconds: 5,
     );
 
