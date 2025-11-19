@@ -482,6 +482,40 @@ class ZoomLauncherService {
             return true;
           } else {
             _logger.d('⏳ 참가 버튼을 찾지 못함. 재시도 중... ($attempt/$maxAttempts)');
+
+            // 5회 시도 후에도 참가 버튼을 찾지 못하면 "이미 회의에 참가한 상태"인지 확인
+            // pwd 파라미터가 URL에 포함된 경우 브라우저가 자동으로 암호를 전달하여
+            // 이름 입력/참가 버튼 화면을 건너뛰고 바로 회의에 참가될 수 있음
+            if (attempt >= 5 && attempt % 5 == 0) {
+              _logger.i('🔍 이미 회의에 참가한 상태인지 확인 중...');
+
+              // 방법 1: 오디오 참가 버튼이 있는지 확인
+              final hasAudioButton = automationBool(ZoomAutomationBindings.joinWithAudio());
+              if (hasAudioButton) {
+                _logger.i('✅ 이미 회의에 참가한 상태로 감지됨 (오디오 참가 버튼 발견)');
+                await _notifyTray('Zoom 자동 참가 완료', '회의에 자동으로 입장했습니다.');
+                _updateAutomationState(
+                  ZoomAutomationStage.waitingRoom,
+                  '회의에 입장했습니다. 오디오를 설정합니다.',
+                );
+                return true;
+              }
+
+              // 방법 2: 음소거/비디오 버튼이 있는지 확인 (이미 오디오에 참가한 경우)
+              final hasMuteButton = automationBool(ZoomAutomationBindings.setMuted(1));
+              if (hasMuteButton) {
+                _logger.i('✅ 이미 회의에 참가한 상태로 감지됨 (음소거 버튼 발견)');
+                await _notifyTray('Zoom 자동 참가 완료', '회의에 자동으로 입장했습니다.');
+                _updateAutomationState(
+                  ZoomAutomationStage.waitingRoom,
+                  '회의에 입장했습니다.',
+                );
+                return true;
+              }
+
+              _logger.d('ℹ️ 아직 회의 화면이 아닌 것 같습니다. 참가 버튼 검색 계속...');
+            }
+
             // Zoom 창이 아직 완전히 로드되지 않았을 수 있으므로 짧은 대기
             await Future.delayed(const Duration(milliseconds: 800));
           }
@@ -491,6 +525,21 @@ class ZoomLauncherService {
         } finally {
           malloc.free(namePointer);
         }
+      }
+
+      // 마지막으로 한 번 더 "이미 회의 중"인지 확인
+      _logger.i('🔍 최종 확인: 이미 회의에 참가한 상태인지 확인...');
+      final hasAudioButton = automationBool(ZoomAutomationBindings.joinWithAudio());
+      final hasMuteButton = automationBool(ZoomAutomationBindings.setMuted(1));
+
+      if (hasAudioButton || hasMuteButton) {
+        _logger.i('✅ 이미 회의에 참가한 상태로 확인됨');
+        await _notifyTray('Zoom 자동 참가 완료', '회의에 자동으로 입장했습니다.');
+        _updateAutomationState(
+          ZoomAutomationStage.waitingRoom,
+          '회의에 입장했습니다.',
+        );
+        return true;
       }
 
       _logger.w('⚠️ Zoom 자동 진입 타임아웃 (30초 경과)');
