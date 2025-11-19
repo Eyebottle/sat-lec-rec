@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import '../../services/zoom_launcher_service.dart';
 import '../../services/settings_service.dart';
+import '../../services/recorder_service.dart';
 import '../../models/zoom_automation_state.dart';
 
 /// Zoom 자동화 테스트 화면
@@ -19,6 +20,7 @@ class ZoomTestScreen extends StatefulWidget {
 class _ZoomTestScreenState extends State<ZoomTestScreen> {
   final ZoomLauncherService _zoomService = ZoomLauncherService();
   final SettingsService _settingsService = SettingsService();
+  final RecorderService _recorderService = RecorderService();
 
   final TextEditingController _zoomLinkController = TextEditingController(
     text: 'https://zoom.us/j/123456789',
@@ -143,6 +145,104 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
     }
   }
 
+  /// 녹화 포함 전체 테스트 실행
+  Future<void> _runFullRecordingTest() async {
+    // 저장된 테스트 링크가 있으면 사용, 없으면 입력 필드의 링크 사용
+    final testLink = _settingsService.settings.testZoomLink ?? _zoomLinkController.text;
+
+    if (testLink.isEmpty || !testLink.contains('zoom.us')) {
+      setState(() {
+        _lastResult = '❌ 유효한 Zoom 링크가 필요합니다.\n'
+            '설정 화면에서 "테스트용 Zoom 링크"를 저장하거나\n'
+            '위 입력 필드에 링크를 입력하세요.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+      _lastResult = '🎬 녹화 통합 테스트 시작...\n'
+          '링크: $testLink';
+    });
+
+    try {
+      // 1단계: Zoom 실행 및 자동 참가
+      setState(() => _lastResult = '1/8 🔵 Zoom 실행 및 자동 참가 중...');
+      await Future.delayed(const Duration(milliseconds: 500));
+      final joinSuccess = await _zoomService.autoJoinZoomMeeting(
+        zoomLink: testLink,
+        userName: _userNameController.text,
+      );
+      if (!joinSuccess) {
+        setState(() => _lastResult = '❌ 1/8 단계 실패: Zoom 실행 및 자동 참가 실패');
+        return;
+      }
+
+      // 2단계: 오디오 참가
+      setState(() => _lastResult = '2/8 🔊 오디오 참가 중...');
+      await Future.delayed(const Duration(seconds: 2));
+      await _zoomService.joinWithAudio();
+
+      // 3단계: 비디오 끄기
+      setState(() => _lastResult = '3/8 📹 비디오 끄기...');
+      await Future.delayed(const Duration(seconds: 1));
+      await _zoomService.setVideoEnabled(false);
+
+      // 4단계: 음소거
+      setState(() => _lastResult = '4/8 🔇 음소거 설정...');
+      await Future.delayed(const Duration(seconds: 1));
+      await _zoomService.setMuted(true);
+
+      // 5단계: 녹화 시작 (30초)
+      setState(() => _lastResult = '5/8 🎬 녹화 시작 (30초)...');
+      await Future.delayed(const Duration(seconds: 2));
+      final filePath = await _recorderService.startRecording(
+        durationSeconds: 30,
+      );
+      if (filePath == null) {
+        setState(() => _lastResult = '❌ 5/8 단계 실패: 녹화 시작 실패');
+        return;
+      }
+
+      // 6단계: 녹화 진행 중 대기
+      for (int i = 30; i > 0; i--) {
+        setState(() => _lastResult = '6/8 ⏱️ 녹화 중... (남은 시간: ${i}초)\n파일: $filePath');
+        await Future.delayed(const Duration(seconds: 1));
+      }
+
+      // 7단계: 녹화 종료
+      setState(() => _lastResult = '7/8 ⏹️ 녹화 종료 중...');
+      await Future.delayed(const Duration(seconds: 2));
+
+      // 8단계: Zoom 종료
+      setState(() => _lastResult = '8/8 🚪 Zoom 종료 중...');
+      await Future.delayed(const Duration(seconds: 1));
+      await _zoomService.closeZoomMeeting();
+
+      setState(() {
+        _lastResult = '✅ 녹화 통합 테스트 성공!\n\n'
+            '모든 8단계가 완료되었습니다:\n'
+            '1. Zoom 실행 및 자동 참가 ✅\n'
+            '2. 오디오 참가 ✅\n'
+            '3. 비디오 끄기 ✅\n'
+            '4. 음소거 설정 ✅\n'
+            '5. 녹화 시작 ✅\n'
+            '6. 30초 녹화 ✅\n'
+            '7. 녹화 종료 ✅\n'
+            '8. Zoom 종료 ✅\n\n'
+            '📁 녹화 파일: $filePath';
+      });
+    } catch (e) {
+      setState(() {
+        _lastResult = '❌ 녹화 통합 테스트 예외 발생: $e';
+      });
+    } finally {
+      setState(() {
+        _isProcessing = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -257,6 +357,65 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
                             ? Colors.green.shade700
                             : Colors.orange.shade700,
                         fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // 녹화 통합 테스트 버튼
+            Card(
+              color: Colors.purple.shade50,
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.videocam, color: Colors.purple.shade700, size: 32),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '🎬 녹화 통합 테스트',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.purple.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Zoom 참가 + 30초 녹화 + 종료 (약 1분 소요)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.purple.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _isProcessing ? null : _runFullRecordingTest,
+                      icon: const Icon(Icons.fiber_manual_record, size: 28),
+                      label: const Text(
+                        '녹화 통합 테스트 시작',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 24.0),
+                        minimumSize: const Size(double.infinity, 60),
                       ),
                     ),
                   ],
