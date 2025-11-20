@@ -96,6 +96,24 @@ class ZoomAutomationBindings {
           'ZoomAutomation_ClickBrowserDialog')
       .asFunction();
 
+  /// Zoom 회의 창 최대화
+  /// 입력: 없음
+  /// 출력: 성공 시 1, 실패 시 0
+  /// 예외: Zoom 창을 찾을 수 없으면 0
+  static final DartNoParamBool maximizeZoomWindow = _lib
+      .lookup<ffi.NativeFunction<NativeNoParamBool>>(
+          'ZoomAutomation_MaximizeZoomWindow')
+      .asFunction();
+
+  /// 팝업 다이얼로그 자동 닫기 (예: 카메라 없음 경고)
+  /// 입력: 없음
+  /// 출력: 팝업을 닫았으면 1, 팝업이 없으면 0
+  /// 예외: 없음
+  static final DartNoParamBool closePopupDialogs = _lib
+      .lookup<ffi.NativeFunction<NativeNoParamBool>>(
+          'ZoomAutomation_ClosePopupDialogs')
+      .asFunction();
+
   /// UI Automation 세션 정리
   static final DartCleanup cleanupUIAutomation = _lib
       .lookup<ffi.NativeFunction<NativeCleanup>>('ZoomAutomation_Cleanup')

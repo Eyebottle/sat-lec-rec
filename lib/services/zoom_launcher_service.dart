@@ -498,6 +498,13 @@ class ZoomLauncherService {
                   ZoomAutomationStage.waitingRoom,
                   '회의에 입장했습니다. 오디오를 설정합니다.',
                 );
+
+                // 우선순위 1: Zoom 창 최대화
+                _maximizeZoomWindow();
+
+                // 우선순위 2: 팝업 다이얼로그 닫기 (예: 카메라 없음 경고)
+                await _closePopupDialogs();
+
                 return true;
               }
 
@@ -510,6 +517,13 @@ class ZoomLauncherService {
                   ZoomAutomationStage.waitingRoom,
                   '회의에 입장했습니다.',
                 );
+
+                // 우선순위 1: Zoom 창 최대화
+                _maximizeZoomWindow();
+
+                // 우선순위 2: 팝업 다이얼로그 닫기 (예: 카메라 없음 경고)
+                await _closePopupDialogs();
+
                 return true;
               }
 
@@ -539,6 +553,13 @@ class ZoomLauncherService {
           ZoomAutomationStage.waitingRoom,
           '회의에 입장했습니다.',
         );
+
+        // 우선순위 1: Zoom 창 최대화
+        _maximizeZoomWindow();
+
+        // 우선순위 2: 팝업 다이얼로그 닫기 (예: 카메라 없음 경고)
+        await _closePopupDialogs();
+
         return true;
       }
 
@@ -794,6 +815,54 @@ class ZoomLauncherService {
       return false;
     } finally {
       ZoomAutomationBindings.cleanupUIAutomation();
+    }
+  }
+
+  /// Zoom 창 최대화 (우선순위 1)
+  /// 입력: 없음
+  /// 출력: 없음 (실패 시 로그만 출력)
+  /// 예외: 없음
+  void _maximizeZoomWindow() {
+    try {
+      final result = automationBool(ZoomAutomationBindings.maximizeZoomWindow());
+      if (result) {
+        _logger.i('✅ Zoom 창 최대화 완료');
+      } else {
+        _logger.d('ℹ️ Zoom 창 최대화 실패 (창을 찾을 수 없음)');
+      }
+    } catch (e) {
+      _logger.w('⚠️ Zoom 창 최대화 중 오류', error: e);
+    }
+  }
+
+  /// 팝업 다이얼로그 자동 닫기 (우선순위 2)
+  /// 예: "We cannot detect a camera" 경고창
+  /// 입력: 없음
+  /// 출력: 없음 (실패 시 로그만 출력)
+  /// 예외: 없음
+  Future<void> _closePopupDialogs() async {
+    try {
+      // 팝업이 나타날 시간을 주기 위해 짧은 대기
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 최대 5회 시도 (팝업이 여러 개일 수 있음)
+      int closedCount = 0;
+      for (int i = 0; i < 5; i++) {
+        final result = automationBool(ZoomAutomationBindings.closePopupDialogs());
+        if (result) {
+          closedCount++;
+          _logger.i('✅ 팝업 다이얼로그 닫기 성공 ($closedCount개)');
+          await Future.delayed(const Duration(milliseconds: 300));
+        } else {
+          break; // 더 이상 팝업 없음
+        }
+      }
+
+      if (closedCount == 0) {
+        _logger.d('ℹ️ 닫을 팝업이 없음');
+      }
+    } catch (e) {
+      _logger.w('⚠️ 팝업 다이얼로그 닫기 중 오류', error: e);
     }
   }
 }

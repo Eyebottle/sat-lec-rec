@@ -695,6 +695,77 @@ BOOL ZoomAutomation_SetMuted(BOOL mute) {
   return SUCCEEDED(invoke_pattern->Invoke());
 }
 
+BOOL ZoomAutomation_MaximizeZoomWindow() {
+  // 입력: 없음
+  // 출력: 성공 시 TRUE, 실패 시 FALSE
+  // 예외: 없음 (실패 시 FALSE 반환)
+  //
+  // 목적: Zoom 회의 창을 찾아서 최대화 (SW_MAXIMIZE)
+  HWND zoom_window = nullptr;
+  if (!ZoomAutomation_FindZoomWindow(&zoom_window) || !zoom_window) {
+    return FALSE;
+  }
+
+  // 창이 최소화 상태면 복원
+  if (IsIconic(zoom_window)) {
+    ShowWindow(zoom_window, SW_RESTORE);
+    Sleep(100);  // 복원 완료 대기
+  }
+
+  // 최대화
+  ShowWindow(zoom_window, SW_MAXIMIZE);
+
+  // 최상위로 가져오기
+  SetForegroundWindow(zoom_window);
+
+  return TRUE;
+}
+
+BOOL ZoomAutomation_ClosePopupDialogs() {
+  // 입력: 없음
+  // 출력: 팝업을 찾아서 닫았으면 TRUE, 팝업이 없으면 FALSE
+  // 예외: 없음 (실패 시 FALSE 반환)
+  //
+  // 목적: "We cannot detect a camera" 같은 팝업 다이얼로그 자동 닫기
+  if (!g_automation) {
+    return FALSE;
+  }
+
+  HWND zoom_window = nullptr;
+  if (!ZoomAutomation_FindZoomWindow(&zoom_window) || !zoom_window) {
+    return FALSE;
+  }
+
+  ComPtr<IUIAutomationElement> window_element;
+  if (FAILED(g_automation->ElementFromHandle(zoom_window, &window_element)) ||
+      !window_element) {
+    return FALSE;
+  }
+
+  // 팝업 다이얼로그에서 찾을 키워드들
+  const std::array<std::wstring, 10> popup_keywords = {
+      L"cannot detect", L"카메라", L"camera", L"감지",
+      L"not detected", L"찾을 수 없", L"확인", L"ok",
+      L"got it", L"알겠"};
+
+  // 버튼 타입의 요소 중 팝업 닫기 버튼 찾기
+  ComPtr<IUIAutomationElement> close_button;
+  if (!FindElementByControlType(window_element.Get(), UIA_ButtonControlTypeId,
+                                ToVector(popup_keywords), &close_button)) {
+    return FALSE;  // 팝업 없음
+  }
+
+  // 버튼 클릭
+  ComPtr<IUIAutomationInvokePattern> invoke_pattern;
+  if (FAILED(close_button->GetCurrentPatternAs(
+          UIA_InvokePatternId, IID_PPV_ARGS(&invoke_pattern))) ||
+      !invoke_pattern) {
+    return FALSE;
+  }
+
+  return SUCCEEDED(invoke_pattern->Invoke());
+}
+
 void ZoomAutomation_Cleanup() {
   // 입력: 없음 / 출력: 없음 / 예외: 없음 (자원만 정리)
   if (g_automation) {
