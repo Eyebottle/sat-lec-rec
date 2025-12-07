@@ -461,9 +461,37 @@ class ZoomLauncherService {
 
       final safeName = userName.trim().isEmpty ? '녹화 시스템' : userName.trim();
 
-      // ⚠️ 참고: 회의 암호는 URL에 pwd 파라미터로 포함되어야 합니다.
-      //         브라우저가 자동으로 Zoom 앱에 전달하므로 별도 입력 불필요.
-      //         (사용자 피드백: 암호 입력창이 나타나지 않고 자동 처리됨)
+      // URL에서 pwd 파라미터 추출 (브라우저가 전달 실패할 경우 대비)
+      // 이유: rundll32로 실행 시 Zoom이 pwd 파라미터를 무시하는 경우가 있음
+      //       이 경우 암호 입력창이 나타나므로 UI Automation으로 직접 입력
+      final uri = Uri.tryParse(zoomLink);
+      final extractedPassword = uri?.queryParameters['pwd'];
+      if (extractedPassword != null && extractedPassword.isNotEmpty) {
+        _logger.i('🔑 URL에서 암호 추출됨: ${extractedPassword.substring(0, 5)}...');
+      }
+
+      // 암호 입력 시도 (암호 입력창이 나타날 경우를 대비)
+      // Zoom이 pwd를 무시하면 암호 입력 다이얼로그가 먼저 나타남
+      if (extractedPassword != null && extractedPassword.isNotEmpty) {
+        _logger.i('🔑 암호 입력창 감지 및 자동 입력 시도 중...');
+        for (int pwdAttempt = 1; pwdAttempt <= 10; pwdAttempt++) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          final passwordPointer = extractedPassword.toNativeUtf16();
+          try {
+            final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
+            if (automationBool(passwordResult)) {
+              _logger.i('✅ 암호 입력 성공 ($pwdAttempt회 시도)');
+              await Future.delayed(const Duration(seconds: 2));
+              break;
+            }
+          } finally {
+            malloc.free(passwordPointer);
+          }
+          if (pwdAttempt == 10) {
+            _logger.d('ℹ️ 암호 입력창을 찾지 못함 (이미 자동 처리되었거나 암호 불필요)');
+          }
+        }
+      }
 
       _logger.i('👤 이름 입력 및 참가 버튼 클릭 시도 시작...');
       for (int attempt = 1; attempt <= maxAttempts; attempt++) {
