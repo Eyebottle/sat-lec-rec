@@ -1,8 +1,8 @@
 # Zoom 암호 입력창 반복 문제 진단 보고서
 
 **작성일**: 2025-01-17
-**최종 업데이트**: 2025-01-17 오후 (과거 커밋 분석 완료)
-**상태**: ✅ **해결 방법 확정** (코드 수정 대기)
+**최종 업데이트**: 2025-12-07 (코드 수정 완료, 테스트 대기)
+**상태**: ✅ **코드 수정 완료** - Windows 테스트 필요
 **우선순위**: ⭐⭐⭐ 긴급
 
 ---
@@ -728,4 +728,64 @@ flutter run -d windows 2>&1 | Tee-Object -FilePath zoom_debug.log
 
 ---
 
-**다음 업데이트**: 로그 수집 후
+## 🔧 2025-12-07 코드 수정 완료
+
+### 수정 내용
+
+**파일**: `lib/services/zoom_launcher_service.dart` (462-494줄)
+
+**변경 사항**:
+1. URL에서 `pwd` 파라미터 자동 추출
+2. Zoom 실행 후 암호 입력창 감지 (최대 10회, 5초)
+3. 암호 입력창 발견 시 UI Automation으로 자동 입력
+
+**커밋**: `17aee4f` - fix: URL에서 pwd 추출하여 암호 입력창 자동 처리
+
+### 수정된 코드
+
+```dart
+// URL에서 pwd 파라미터 추출 (브라우저가 전달 실패할 경우 대비)
+final uri = Uri.tryParse(zoomLink);
+final extractedPassword = uri?.queryParameters['pwd'];
+if (extractedPassword != null && extractedPassword.isNotEmpty) {
+  _logger.i('🔑 URL에서 암호 추출됨: ${extractedPassword.substring(0, 5)}...');
+}
+
+// 암호 입력 시도 (암호 입력창이 나타날 경우를 대비)
+if (extractedPassword != null && extractedPassword.isNotEmpty) {
+  _logger.i('🔑 암호 입력창 감지 및 자동 입력 시도 중...');
+  for (int pwdAttempt = 1; pwdAttempt <= 10; pwdAttempt++) {
+    await Future.delayed(const Duration(milliseconds: 500));
+    final passwordPointer = extractedPassword.toNativeUtf16();
+    try {
+      final passwordResult = ZoomAutomationBindings.enterPassword(passwordPointer);
+      if (automationBool(passwordResult)) {
+        _logger.i('✅ 암호 입력 성공 ($pwdAttempt회 시도)');
+        await Future.delayed(const Duration(seconds: 2));
+        break;
+      }
+    } finally {
+      malloc.free(passwordPointer);
+    }
+  }
+}
+```
+
+### 테스트 방법
+
+1. Windows에서 앱 실행: `flutter run -d windows`
+2. **Zoom 자동화 테스트** 화면 이동
+3. pwd 포함 링크 입력 (예: `https://zoom.us/j/123?pwd=abc`)
+4. **"이름 입력 + 참가 버튼 클릭"** 버튼 클릭
+
+### 예상 로그
+
+```
+🔑 URL에서 암호 추출됨: 0XQLp...
+🔑 암호 입력창 감지 및 자동 입력 시도 중...
+✅ 암호 입력 성공 (N회 시도)
+```
+
+---
+
+**다음 업데이트**: Windows 테스트 결과 후
