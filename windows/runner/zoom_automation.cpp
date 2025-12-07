@@ -256,8 +256,11 @@ bool ClickPasswordConfirmButton(IUIAutomationElement* root) {
     return false;
   }
 
-  const std::array<std::wstring, 4> confirm_keywords = {
-      L"확인", L"ok", L"join", L"continue"};
+  // ⚠️ 주의: "join" 키워드는 포함하지 않음!
+  // 암호 입력창이 없을 때 이 함수가 호출되면 "참가" 버튼을 잘못 클릭할 수 있음
+  // 이름 입력 전에 참가 버튼이 눌리면 "잘못된 회의 아이디" 오류 발생
+  const std::array<std::wstring, 3> confirm_keywords = {
+      L"확인", L"ok", L"continue"};
 
   ComPtr<IUIAutomationElement> confirm_button;
   if (!FindElementByControlType(root, UIA_ButtonControlTypeId,
