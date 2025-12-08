@@ -220,7 +220,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             // 4. 테스트 도구 (필요시 접어서 보여주거나 하단 배치)
             _buildQuickTestSection(),
             
-            const SizedBox(height: AppSpacing.xxl),
+            const SizedBox(height: AppSpacing.xl),
             
             // 버전 정보
             Center(
@@ -244,7 +244,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     // 예약이 없을 때
     if (schedules.isEmpty) {
       return AppCard(
-        backgroundColor: Colors.white,
+        color: Colors.white,
         padding: const EdgeInsets.all(32),
         child: Column(
           children: [
