@@ -28,7 +28,7 @@ class _ZoomTestScreenState extends State<ZoomTestScreen> {
   final RecorderService _recorderService = RecorderService();
 
   final TextEditingController _zoomLinkController = TextEditingController(
-    text: 'https://zoom.us/j/123456789',
+    text: '',  // 사용자가 직접 입력하도록 빈 문자열로 시작
   );
   final TextEditingController _userNameController = TextEditingController(
     text: '녹화 시스템',
