@@ -217,11 +217,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // 4. 테스트 도구 (필요시 접어서 보여주거나 하단 배치)
-            _buildQuickTestSection(),
-            
-            const SizedBox(height: AppSpacing.xl),
-            
             // 버전 정보
             Center(
               child: Text(
@@ -237,24 +232,25 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  /// 다음 예약 히어로 카드 (디자인 개선)
+  /// 다음 예약 히어로 카드 (컴팩트 버전)
   Widget _buildNextScheduleHeroCard() {
     final schedules = _scheduleService.enabledSchedules;
-    
+
     // 예약이 없을 때
     if (schedules.isEmpty) {
       return AppCard(
         color: Colors.white,
-        padding: const EdgeInsets.all(32),
-        child: Column(
+        padding: const EdgeInsets.all(20),
+        child: Row(
           children: [
-            Icon(Icons.event_busy_rounded, size: 48, color: AppColors.textSecondary.withValues(alpha: 0.3)),
-            const SizedBox(height: 16),
-            Text(
-              '예정된 녹화가 없습니다',
-              style: AppTypography.titleMedium.copyWith(color: AppColors.textSecondary),
+            Icon(Icons.event_busy_rounded, size: 32, color: AppColors.textSecondary.withValues(alpha: 0.4)),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                '예정된 녹화가 없습니다',
+                style: AppTypography.titleSmall.copyWith(color: AppColors.textSecondary),
+              ),
             ),
-            const SizedBox(height: 8),
             TextButton.icon(
               onPressed: () {
                 Navigator.push(
@@ -262,8 +258,8 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
                   MaterialPageRoute(builder: (context) => const ScheduleScreen()),
                 );
               },
-              icon: const Icon(Icons.add_circle_outline),
-              label: const Text('새 스케줄 추가하기'),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('추가'),
             )
           ],
         ),
@@ -286,123 +282,92 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       return const SizedBox.shrink();
     }
 
-    final now = DateTime.now();
-    final isPast = nextTime.isBefore(now); // 이미 지났는데 녹화가 안 된 경우 등
-
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
             AppColors.primary,
-            AppColors.primary.withValues(alpha: 0.8),
+            AppColors.primary.withValues(alpha: 0.85),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
       ),
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 상단: 라벨 + 예약명
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.access_alarm_rounded, color: Colors.white, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      'NEXT RECORDING',
-                      style: AppTypography.labelSmall.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'NEXT',
+                  style: AppTypography.labelSmall.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-              Icon(Icons.more_horiz, color: Colors.white.withValues(alpha: 0.5)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  nextSchedule.name,
+                  style: AppTypography.titleLarge.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const ScheduleScreen()),
+                  );
+                },
+                icon: const Icon(Icons.edit_rounded, color: Colors.white70, size: 20),
+                tooltip: '예약 수정',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          // 중단: 일정 정보
           Text(
-            nextSchedule.name,
-            style: AppTypography.displaySmall.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              height: 1.2,
-            ),
+            '${nextSchedule.scheduleDisplayName} · ${nextSchedule.startTimeFormatted}',
+            style: AppTypography.bodyMedium.copyWith(color: Colors.white70),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '${nextSchedule.scheduleDisplayName} · ${nextSchedule.startTimeFormatted} 시작',
-            style: AppTypography.titleMedium.copyWith(
-              color: Colors.white.withValues(alpha: 0.9),
-            ),
-          ),
-          const SizedBox(height: 32),
-          
-          // 카운트다운 타이머
+          const SizedBox(height: 16),
+          // 하단: 카운트다운
           Container(
-            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              color: Colors.black.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '녹화 시작까지',
-                        style: AppTypography.labelMedium.copyWith(color: Colors.white70),
-                      ),
-                      const SizedBox(height: 4),
-                      CountdownTimer(
-                        targetTime: nextTime,
-                        style: AppTypography.headlineMedium.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Monospace', // 숫자가 튀지 않게 고정폭 폰트 권장
-                        ),
-                        onComplete: () => setState(() {}),
-                      ),
-                    ],
+                const Icon(Icons.timer_outlined, color: Colors.white70, size: 18),
+                const SizedBox(width: 8),
+                Text('시작까지', style: AppTypography.bodySmall.copyWith(color: Colors.white70)),
+                const SizedBox(width: 12),
+                CountdownTimer(
+                  targetTime: nextTime,
+                  style: AppTypography.titleLarge.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Monospace',
                   ),
-                ),
-                Container(
-                  height: 40,
-                  width: 1,
-                  color: Colors.white.withValues(alpha: 0.2),
-                ),
-                const SizedBox(width: 24),
-                IconButton(
-                  onPressed: () {
-                     Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const ScheduleScreen()),
-                    );
-                  }, 
-                  icon: const Icon(Icons.edit_calendar_rounded, color: Colors.white),
-                  tooltip: '예약 수정',
+                  onComplete: () => setState(() {}),
                 ),
               ],
             ),
@@ -412,85 +377,70 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  /// 녹화 중 상태 카드 (Stop & Save 기능 포함)
+  /// 녹화 중 상태 카드 (컴팩트 버전)
   Widget _buildRecordingActiveCard() {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.error.withValues(alpha: 0.15),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
       ),
-      padding: const EdgeInsets.all(32),
-      child: Column(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
         children: [
-          // 애니메이션 효과가 들어간 아이콘 (간단히 구현)
+          // 녹화 아이콘 (깜빡임 효과)
           TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.0, end: 1.0),
-            duration: const Duration(seconds: 1),
+            tween: Tween(begin: 0.5, end: 1.0),
+            duration: const Duration(milliseconds: 800),
             builder: (context, value, child) {
               return Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppColors.error.withValues(alpha: 0.1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.error.withValues(alpha: 0.2 * value),
-                      blurRadius: 20 * value,
-                      spreadRadius: 5 * value,
-                    ),
-                  ],
+                  color: AppColors.error.withValues(alpha: 0.1 * value),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.fiber_manual_record_rounded,
-                  color: AppColors.error,
-                  size: 48,
+                  color: AppColors.error.withValues(alpha: value),
+                  size: 28,
                 ),
               );
             },
-            onEnd: () => setState(() {}), // 계속 반복되도록 (단순 트리거)
+            onEnd: () => setState(() {}),
           ),
-          const SizedBox(height: 24),
-          Text(
-            '녹화가 진행 중입니다',
-            style: AppTypography.headlineSmall.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '화면과 시스템 오디오를 캡처하고 있습니다.\n종료하려면 아래 버튼을 누르세요.',
-            textAlign: TextAlign.center,
-            style: AppTypography.bodyMedium.copyWith(color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: _stopRecordingSafely,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error,
-                foregroundColor: Colors.white,
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+          const SizedBox(width: 16),
+          // 텍스트
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '녹화 진행 중',
+                  style: AppTypography.titleMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.error,
+                  ),
                 ),
-              ),
-              icon: const Icon(Icons.stop_circle_outlined, size: 28),
-              label: const Text(
-                '녹화 중단 및 파일 저장',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Text(
+                  '화면 및 오디오 캡처 중',
+                  style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          // 중단 버튼
+          ElevatedButton.icon(
+            onPressed: _stopRecordingSafely,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
+            icon: const Icon(Icons.stop_rounded, size: 20),
+            label: const Text('중단', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -564,102 +514,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
     );
   }
 
-  /// 빠른 테스트 섹션
-  Widget _buildQuickTestSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            '시스템 테스트',
-            style: AppTypography.labelLarge.copyWith(color: AppColors.textSecondary),
-          ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: AppButton.tonal(
-                onPressed: _recorderService.isRecording ? null : _test10SecRecording,
-                icon: Icons.timer_10,
-                child: const Text('10초 녹화 테스트'),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: AppButton.secondary(
-                onPressed: _testZoomLaunch,
-                icon: Icons.videocam_outlined,
-                child: const Text('Zoom 실행 테스트'),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   // --- Actions ---
-
-  Future<void> _test10SecRecording() async {
-    logger.i('10초 테스트 버튼 클릭');
-    try {
-      final filePath = await _recorderService.startRecording(
-        durationSeconds: 10,
-      );
-
-      if (filePath != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('10초 녹화 시작\n$filePath'),
-            duration: const Duration(seconds: 3),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
-    } catch (e) {
-      logger.e('녹화 시작 실패', error: e);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('녹화 시작 실패: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _testZoomLaunch() async {
-    logger.i('Zoom 실행 테스트 버튼 클릭');
-    try {
-      const testLink = 'https://zoom.us/test';
-      final success = await _zoomLauncherService.launchZoomMeeting(
-        zoomLink: testLink,
-        waitSeconds: 5,
-      );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              success ? 'Zoom 실행 성공!' : 'Zoom 실행 실패',
-            ),
-            backgroundColor: success ? AppColors.success : AppColors.error,
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Zoom 실행 실패: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
 
   Future<void> _openRecordingFolder() async {
     try {

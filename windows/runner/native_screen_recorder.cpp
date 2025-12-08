@@ -92,6 +92,11 @@ static std::mutex g_queue_mutex;
 static std::condition_variable g_queue_cv;
 static const size_t MAX_QUEUE_SIZE = 60;  // 최대 60 프레임 (약 2.5초 @ 24fps)
 
+// 마지막 캡처된 프레임 (DXGI 타임아웃 시 재사용)
+// ⚠️ 중요: 정적 화면에서도 비디오 스트림 연속성 유지를 위해 필요
+static FrameData g_last_captured_frame;
+static bool g_has_last_frame = false;
+
 // 오디오 버퍼 큐
 static std::queue<AudioSample> g_audio_queue;
 static std::mutex g_audio_queue_mutex;
@@ -744,45 +749,49 @@ static void AudioCaptureThreadFunc() {
                 break;
             }
 
+            // 오디오 샘플 생성 (무음 여부와 관계없이 항상 전송)
+            // ⚠️ 중요: 무음 구간에서도 데이터를 보내야 A/V 동기화 유지됨
+            AudioSample sample;
+            sample.frame_count = frames_available;
+            sample.sample_rate = g_wave_format->nSamplesPerSec;
+            sample.channels = g_wave_format->nChannels;
+            sample.bits_per_sample = g_wave_format->wBitsPerSample;
+
+            // 데이터 크기 계산
+            UINT32 data_size = frames_available * g_wave_format->nBlockAlign;
+            sample.data.resize(data_size);
+
             // 무음 플래그 확인
-            if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
-                // Phase 3.1.2: 오디오 레벨 계산 및 업데이트
-                float audio_level = CalculateAudioLevel(data, frames_available, g_wave_format->nChannels);
-                g_current_audio_level.store(audio_level);
-
-                // 오디오 샘플 생성
-                AudioSample sample;
-                sample.frame_count = frames_available;
-                sample.sample_rate = g_wave_format->nSamplesPerSec;
-                sample.channels = g_wave_format->nChannels;
-                sample.bits_per_sample = g_wave_format->wBitsPerSample;
-
-                // 데이터 크기 계산 및 복사
-                UINT32 data_size = frames_available * g_wave_format->nBlockAlign;
-                sample.data.resize(data_size);
-                memcpy(sample.data.data(), data, data_size);
-
-                // 타임스탬프 설정
-                LARGE_INTEGER qpc;
-                QueryPerformanceCounter(&qpc);
-                sample.timestamp = qpc.QuadPart;
-
-                // 큐에 추가
-                EnqueueAudioSample(sample);
-
-                sample_count++;
-                if (sample_count == 1) {
-                    printf("[C++] 🎤 첫 번째 오디오 샘플 캡처 성공! (%d frames)\n", frames_available);
-                    fflush(stdout);
-                }
-                if (sample_count % 500 == 0) {
-                    printf("[C++] 📊 오디오 샘플: %d개 캡처됨\n", sample_count);
-                    fflush(stdout);
-                }
-            } else {
-                // Phase 3.1.2: 무음일 때 레벨 0으로 설정
+            if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                // 무음일 때: 0으로 채운 데이터 전송
+                memset(sample.data.data(), 0, data_size);
                 g_current_audio_level.store(0.0f);
                 g_peak_audio_level.store(0.0f);
+            } else {
+                // 실제 오디오 데이터 복사
+                memcpy(sample.data.data(), data, data_size);
+
+                // 오디오 레벨 계산 및 업데이트
+                float audio_level = CalculateAudioLevel(data, frames_available, g_wave_format->nChannels);
+                g_current_audio_level.store(audio_level);
+            }
+
+            // 타임스탬프 설정
+            LARGE_INTEGER qpc;
+            QueryPerformanceCounter(&qpc);
+            sample.timestamp = qpc.QuadPart;
+
+            // 큐에 추가 (무음 포함 항상)
+            EnqueueAudioSample(sample);
+
+            sample_count++;
+            if (sample_count == 1) {
+                printf("[C++] 🎤 첫 번째 오디오 샘플 캡처 성공! (%d frames)\n", frames_available);
+                fflush(stdout);
+            }
+            if (sample_count % 500 == 0) {
+                printf("[C++] 📊 오디오 샘플: %d개 캡처됨\n", sample_count);
+                fflush(stdout);
             }
 
             // 버퍼 해제
@@ -823,7 +832,17 @@ static bool CaptureFrame() {
     // 1. 프레임 가져오기 (타임아웃 100ms)
     hr = g_dxgi_duplication->AcquireNextFrame(100, &frame_info, &desktop_resource);
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-        return true;  // 타임아웃은 정상 (새 프레임 없음)
+        // 타임아웃: 화면 변화 없음 → 마지막 프레임 재사용
+        // ⚠️ 중요: 정적 화면(PPT, 문서 등)에서도 비디오 스트림 유지 필요
+        if (g_has_last_frame) {
+            // 새 타임스탬프로 마지막 프레임 복제하여 큐에 추가
+            FrameData repeat_frame = g_last_captured_frame;
+            LARGE_INTEGER qpc;
+            QueryPerformanceCounter(&qpc);
+            repeat_frame.timestamp = qpc.QuadPart;
+            EnqueueFrame(repeat_frame);
+        }
+        return true;
     }
     
     // DXGI_ERROR_ACCESS_LOST: Desktop Duplication 세션이 무효화됨
@@ -930,6 +949,10 @@ static bool CaptureFrame() {
         LARGE_INTEGER qpc;
         QueryPerformanceCounter(&qpc);
         frame.timestamp = qpc.QuadPart;
+
+        // 마지막 프레임으로 저장 (타임아웃 시 재사용)
+        g_last_captured_frame = frame;
+        g_has_last_frame = true;
 
         // 프레임 큐에 추가
         EnqueueFrame(frame);
@@ -1213,6 +1236,10 @@ int32_t NativeRecorder_StopRecording() {
         if (g_capture_thread.joinable()) {
             g_capture_thread.join();
         }
+
+        // 마지막 프레임 상태 리셋
+        g_has_last_frame = false;
+        g_last_captured_frame = FrameData();
 
         SetLastError("");
         return 0;  // 성공
