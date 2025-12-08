@@ -545,6 +545,33 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           minutes: durationMinutes,
                           onChanged: (val) => setDialogState(() => durationMinutes = val),
                         ),
+
+                        // 준비 시간 안내
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.info.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.info_outline, color: AppColors.info, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '녹화는 예약 시간 2~3분 전부터 준비를 시작합니다.\n'
+                                  '실제 녹화 파일은 준비 완료 후 시작됩니다.',
+                                  style: AppTypography.bodySmall.copyWith(
+                                    color: AppColors.info,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),

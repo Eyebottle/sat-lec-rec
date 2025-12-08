@@ -826,15 +826,17 @@ BOOL ZoomAutomation_ClickLeaveButton() {
     return FALSE;
   }
 
-  // 확인 다이얼로그가 나올 수 있으므로 잠시 대기
-  Sleep(500);
+  // 확인 다이얼로그가 나올 수 있으므로 충분히 대기 (1.5초)
+  Sleep(1500);
 
   // 확인 다이얼로그에서 "Leave Meeting" 버튼 찾기
   // Zoom은 때때로 "Leave for All" vs "Leave Meeting" 선택지를 보여줌
+  // 다이얼로그가 새 창일 수 있으므로, Zoom 창을 다시 찾아봄
   const std::array<std::wstring, 6> confirm_leave_keywords = {
       L"leave meeting", L"회의 나가기", L"leave for", L"exit",
       L"확인", L"ok"};
 
+  // 1차: 현재 창에서 찾기
   ComPtr<IUIAutomationElement> confirm_button;
   if (FindElementByControlType(window_element.Get(), UIA_ButtonControlTypeId,
                                ToVector(confirm_leave_keywords), &confirm_button)) {
@@ -843,9 +845,51 @@ BOOL ZoomAutomation_ClickLeaveButton() {
             UIA_InvokePatternId, IID_PPV_ARGS(&confirm_invoke))) &&
         confirm_invoke) {
       confirm_invoke->Invoke();
+      return TRUE;
     }
   }
 
+  // 2차: 다이얼로그가 새 창일 경우, 다시 Zoom 창 찾기
+  Sleep(500);
+  HWND new_zoom_window = nullptr;
+  if (TryFindZoomWindow(&new_zoom_window) && new_zoom_window != zoom_window) {
+    ComPtr<IUIAutomationElement> dialog_element;
+    if (SUCCEEDED(g_automation->ElementFromHandle(new_zoom_window, &dialog_element)) &&
+        dialog_element) {
+      if (FindElementByControlType(dialog_element.Get(), UIA_ButtonControlTypeId,
+                                   ToVector(confirm_leave_keywords), &confirm_button)) {
+        ComPtr<IUIAutomationInvokePattern> confirm_invoke;
+        if (SUCCEEDED(confirm_button->GetCurrentPatternAs(
+                UIA_InvokePatternId, IID_PPV_ARGS(&confirm_invoke))) &&
+            confirm_invoke) {
+          confirm_invoke->Invoke();
+          return TRUE;
+        }
+      }
+    }
+  }
+
+  // 3차: 포그라운드 윈도우에서 찾기 (다이얼로그가 포커스를 가져간 경우)
+  HWND foreground = GetForegroundWindow();
+  if (foreground && foreground != zoom_window) {
+    ComPtr<IUIAutomationElement> fg_element;
+    if (SUCCEEDED(g_automation->ElementFromHandle(foreground, &fg_element)) &&
+        fg_element) {
+      if (FindElementByControlType(fg_element.Get(), UIA_ButtonControlTypeId,
+                                   ToVector(confirm_leave_keywords), &confirm_button)) {
+        ComPtr<IUIAutomationInvokePattern> confirm_invoke;
+        if (SUCCEEDED(confirm_button->GetCurrentPatternAs(
+                UIA_InvokePatternId, IID_PPV_ARGS(&confirm_invoke))) &&
+            confirm_invoke) {
+          confirm_invoke->Invoke();
+          return TRUE;
+        }
+      }
+    }
+  }
+
+  // 첫 번째 버튼 클릭은 성공했으므로 TRUE 반환
+  // (확인 다이얼로그가 없을 수도 있음 - 바로 종료되는 경우)
   return TRUE;
 }
 
