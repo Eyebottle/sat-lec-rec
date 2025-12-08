@@ -229,12 +229,12 @@ static bool InitializeDXGIDuplication() {
         return false;
     }
 
-    // 2. 주 출력(모니터) 가져오기
-    printf("[C++] 2/4: 주 모니터 출력 가져오기...\n");
+    // 2. 두 번째 모니터(2번) 출력 가져오기
+    printf("[C++] 2/4: 2번 모니터 출력 가져오기...\n");
     fflush(stdout);
 
     IDXGIOutput* dxgi_output = nullptr;
-    hr = dxgi_adapter->EnumOutputs(0, &dxgi_output);  // 첫 번째 모니터
+    hr = dxgi_adapter->EnumOutputs(1, &dxgi_output);  // 두 번째 모니터 (인덱스 1)
     dxgi_adapter->Release();
     if (FAILED(hr)) {
         printf("[C++] ❌ DXGI 출력 가져오기 실패 (HRESULT: 0x%08X)\n", hr);
@@ -282,6 +282,46 @@ static void CleanupDXGIDuplication() {
         g_dxgi_duplication->Release();
         g_dxgi_duplication = nullptr;
     }
+}
+
+// DXGI Desktop Duplication 재초기화 (ACCESS_LOST 복구용)
+// 녹화 중 DXGI_ERROR_ACCESS_LOST 발생 시 호출됨
+static bool ReinitializeDXGIDuplication() {
+    printf("[C++] DXGI Duplication 재초기화 시작...\\n");
+    fflush(stdout);
+    
+    // 기존 리소스가 남아있다면 정리
+    CleanupDXGIDuplication();
+    
+    // D3D 디바이스가 유효한지 확인
+    if (!g_d3d_device) {
+        printf("[C++] ❌ D3D 디바이스가 없습니다\\n");
+        fflush(stdout);
+        return false;
+    }
+    
+    // 재초기화 시도 (최대 3회)
+    for (int attempt = 1; attempt <= 3; attempt++) {
+        printf("[C++] 재초기화 시도 %d/3...\\n", attempt);
+        fflush(stdout);
+        
+        if (InitializeDXGIDuplication()) {
+            printf("[C++] ✅ DXGI Duplication 재초기화 성공 (시도 %d)\\n", attempt);
+            fflush(stdout);
+            return true;
+        }
+        
+        // 실패 시 잠시 대기 후 재시도
+        if (attempt < 3) {
+            printf("[C++] 재초기화 실패, 1초 후 재시도...\\n");
+            fflush(stdout);
+            Sleep(1000);
+        }
+    }
+    
+    printf("[C++] ❌ DXGI Duplication 재초기화 모든 시도 실패\\n");
+    fflush(stdout);
+    return false;
 }
 
 // WASAPI 초기화
@@ -561,8 +601,9 @@ static bool ProcessNextAudioSample() {
 // 출력: 없음 (파이프에 데이터 지속 전송)
 // 예외: 파이프 오류 시 last_error 갱신 후 루프 종료
 static void EncoderThreadFunc() {
-    printf("[C++] FFmpeg 파이프 인코더 스레드 시작...\n");
-    fflush(stdout);
+    try {
+        printf("[C++] FFmpeg 파이프 인코더 스레드 시작...\n");
+        fflush(stdout);
 
     ResetRecordingStats();
 
@@ -601,6 +642,13 @@ static void EncoderThreadFunc() {
 
     printf("[C++] FFmpeg 파이프 인코더 스레드 종료\n");
     fflush(stdout);
+    } catch (const std::exception& e) {
+        printf("[C++] ❌ 인코더 스레드 예외 발생: %s\n", e.what());
+        fflush(stdout);
+    } catch (...) {
+        printf("[C++] ❌ 인코더 스레드 알 수 없는 예외 발생\n");
+        fflush(stdout);
+    }
 }
 
 // 프레임 큐에 추가 (나중에 FrameArrived에서 사용)
@@ -659,8 +707,9 @@ static void EncoderThreadFunc() {
 
 // 오디오 캡처 루프 (별도 스레드에서 실행)
 static void AudioCaptureThreadFunc() {
-    printf("[C++] 오디오 캡처 스레드 시작...\n");
-    fflush(stdout);
+    try {
+        printf("[C++] 오디오 캡처 스레드 시작...\n");
+        fflush(stdout);
 
     HRESULT hr;
     int sample_count = 0;
@@ -749,7 +798,21 @@ static void AudioCaptureThreadFunc() {
 
     printf("[C++] 오디오 캡처 스레드 종료, 총 %d개 샘플 캡처됨\n", sample_count);
     fflush(stdout);
+    } catch (const std::exception& e) {
+        printf("[C++] ❌ 오디오 스레드 예외 발생: %s\n", e.what());
+        fflush(stdout);
+    } catch (...) {
+        printf("[C++] ❌ 오디오 스레드 알 수 없는 예외 발생\n");
+        fflush(stdout);
+    }
 }
+
+// DXGI 복구를 위한 재초기화 함수 (forward declaration)
+static bool ReinitializeDXGIDuplication();
+
+// 연속 실패 카운터 (복구 시도용)
+static int g_capture_failure_count = 0;
+static const int MAX_CAPTURE_FAILURES = 5;  // 5회 연속 실패 시 복구 시도
 
 // 프레임 캡처 (DXGI Desktop Duplication)
 static bool CaptureFrame() {
@@ -762,10 +825,59 @@ static bool CaptureFrame() {
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
         return true;  // 타임아웃은 정상 (새 프레임 없음)
     }
+    
+    // DXGI_ERROR_ACCESS_LOST: Desktop Duplication 세션이 무효화됨
+    // 원인: 전체화면 앱 전환, 디스플레이 설정 변경, DWM 재시작 등
+    if (hr == DXGI_ERROR_ACCESS_LOST) {
+        printf("[C++] ⚠️ DXGI_ERROR_ACCESS_LOST 발생 - Desktop Duplication 재초기화 시도...\\n");
+        fflush(stdout);
+        
+        // 기존 Duplication 정리
+        if (g_dxgi_duplication) {
+            g_dxgi_duplication->Release();
+            g_dxgi_duplication = nullptr;
+        }
+        
+        // 스테이징 텍스처도 정리 (해상도 변경 가능성)
+        if (g_staging_texture) {
+            g_staging_texture->Release();
+            g_staging_texture = nullptr;
+        }
+        
+        // 잠시 대기 후 재초기화
+        Sleep(500);
+        
+        if (ReinitializeDXGIDuplication()) {
+            printf("[C++] ✅ Desktop Duplication 재초기화 성공, 녹화 계속...\\n");
+            fflush(stdout);
+            g_capture_failure_count = 0;
+            return true;  // 재시도
+        } else {
+            printf("[C++] ❌ Desktop Duplication 재초기화 실패\\n");
+            fflush(stdout);
+            SetLastError("DXGI 세션 복구 실패");
+            return false;
+        }
+    }
+    
     if (FAILED(hr)) {
-        SetLastError("프레임 가져오기 실패");
+        g_capture_failure_count++;
+        printf("[C++] ⚠️ 프레임 가져오기 실패 (HRESULT: 0x%08X, 연속실패: %d/%d)\\n",
+               hr, g_capture_failure_count, MAX_CAPTURE_FAILURES);
+        fflush(stdout);
+        
+        // 연속 실패가 임계값 미만이면 재시도
+        if (g_capture_failure_count < MAX_CAPTURE_FAILURES) {
+            Sleep(50);  // 잠시 대기 후 재시도
+            return true;
+        }
+        
+        SetLastError("프레임 가져오기 연속 실패");
         return false;
     }
+    
+    // 성공 시 실패 카운터 리셋
+    g_capture_failure_count = 0;
 
     // 2. ID3D11Texture2D로 변환
     ID3D11Texture2D* desktop_texture = nullptr;
@@ -836,9 +948,10 @@ static void CaptureThreadFunc(
     int32_t height,
     int32_t fps
 ) {
-    // DXGI Desktop Duplication 초기화
-    printf("[C++] DXGI Desktop Duplication 초기화 시작...\n");
-    fflush(stdout);
+    try {
+        // DXGI Desktop Duplication 초기화
+        printf("[C++] DXGI Desktop Duplication 초기화 시작...\n");
+        fflush(stdout);
 
     if (!InitializeDXGIDuplication()) {
         printf("[C++] ❌ Desktop Duplication 초기화 실패\n");
@@ -945,12 +1058,13 @@ static void CaptureThreadFunc(
     // 인코더 스레드 시작
     g_encoder_thread = std::thread(EncoderThreadFunc);
 
-    printf("[C++] ✅ 모든 초기화 완료, 녹화 시작\n");
+    printf("[C++] ✅ 모든 초기화 완료, 녹화 시작\\n");
     fflush(stdout);
 
     // 메인 캡처 루프
     int frame_count = 0;
-    printf("[C++] 프레임 캡처 루프 시작...\n");
+    g_capture_failure_count = 0;  // 실패 카운터 초기화
+    printf("[C++] 프레임 캡처 루프 시작...\\n");
     fflush(stdout);
 
     while (g_is_recording) {
@@ -1002,6 +1116,20 @@ static void CaptureThreadFunc(
     CleanupDXGIDuplication();
     printf("[C++] 모든 리소스 정리 완료\n");
     fflush(stdout);
+    } catch (const std::exception& e) {
+        printf("[C++] ❌ 캡처 스레드 예외 발생: %s\n", e.what());
+        fflush(stdout);
+        // 예외 발생 시에도 정리 시도
+        g_is_recording = false;
+        CleanupWASAPI();
+        CleanupDXGIDuplication();
+    } catch (...) {
+        printf("[C++] ❌ 캡처 스레드 알 수 없는 예외 발생\n");
+        fflush(stdout);
+        g_is_recording = false;
+        CleanupWASAPI();
+        CleanupDXGIDuplication();
+    }
 }
 
 // ========== C 인터페이스 구현 (extern "C" 링크) ==========

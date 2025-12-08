@@ -20,6 +20,7 @@ __declspec(dllexport) BOOL ZoomAutomation_SetMuted(BOOL mute);
 __declspec(dllexport) BOOL ZoomAutomation_ClickBrowserDialog();
 __declspec(dllexport) BOOL ZoomAutomation_MaximizeZoomWindow();
 __declspec(dllexport) BOOL ZoomAutomation_ClosePopupDialogs();
+__declspec(dllexport) BOOL ZoomAutomation_ClickLeaveButton();
 __declspec(dllexport) void ZoomAutomation_Cleanup();
 
 #ifdef __cplusplus

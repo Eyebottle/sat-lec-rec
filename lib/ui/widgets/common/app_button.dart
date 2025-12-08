@@ -26,6 +26,7 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.filled;
 
   const AppButton.primary({
@@ -34,6 +35,7 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.filled;
 
   /// 부드러운 톤의 버튼 (Material 3 FilledButton.tonal)
@@ -44,6 +46,7 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.tonal;
 
   const AppButton.secondary({
@@ -52,6 +55,7 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.outlined;
 
   const AppButton.text({
@@ -60,6 +64,7 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.text;
 
   const AppButton.success({
@@ -68,6 +73,7 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.success;
 
   const AppButton.error({
@@ -76,12 +82,25 @@ class AppButton extends StatelessWidget {
     required this.child,
     this.style,
     this.icon,
+    this.backgroundColor,
   }) : _type = _ButtonType.error;
+
+  /// 외곽선 버튼 (outlined style)
+  /// secondary와 동일하지만 명시적인 이름 제공
+  const AppButton.outline({
+    super.key,
+    required this.onPressed,
+    required this.child,
+    this.style,
+    this.icon,
+    this.backgroundColor,
+  }) : _type = _ButtonType.outlined;
 
   final VoidCallback? onPressed;
   final Widget child;
   final ButtonStyle? style;
   final IconData? icon;
+  final Color? backgroundColor;
   final _ButtonType _type;
 
   @override
@@ -97,7 +116,7 @@ class AppButton extends StatelessWidget {
       case _ButtonType.filled:
         return FilledButton(
           onPressed: onPressed,
-          style: style ?? _getDefaultFilledStyle(AppColors.primary),
+          style: style ?? _getDefaultFilledStyle(backgroundColor ?? AppColors.primary),
           child: child,
         );
 
@@ -143,7 +162,7 @@ class AppButton extends StatelessWidget {
       case _ButtonType.filled:
         return FilledButton.icon(
           onPressed: onPressed,
-          style: style ?? _getDefaultFilledStyle(AppColors.primary),
+          style: style ?? _getDefaultFilledStyle(backgroundColor ?? AppColors.primary),
           icon: Icon(icon),
           label: child,
         );

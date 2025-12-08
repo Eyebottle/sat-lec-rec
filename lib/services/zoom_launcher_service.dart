@@ -192,23 +192,7 @@ class ZoomLauncherService {
 
         _logger.i('✅ Zoom 링크 실행 완료: pid=${process.pid}');
         _logger.i('💡 브라우저가 Zoom 앱을 자동으로 실행하며 암호를 전달합니다');
-
-        // 브라우저 다이얼로그 자동 클릭 시도 (최대 5초)
-        _logger.i('🖱️ 브라우저 다이얼로그 자동 클릭 시도 중...');
-        bool dialogClicked = false;
-        for (int i = 0; i < 10; i++) {
-          await Future.delayed(const Duration(milliseconds: 500));
-          if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
-            if (automationBool(ZoomAutomationBindings.clickBrowserDialog())) {
-              _logger.i('✅ 브라우저 다이얼로그 클릭 성공 (${i + 1}회 시도)');
-              dialogClicked = true;
-              break;
-            }
-          }
-        }
-        if (!dialogClicked) {
-          _logger.d('ℹ️ 브라우저 다이얼로그를 찾지 못함 (수동 클릭 필요할 수 있음)');
-        }
+        // 브라우저 다이얼로그 클릭은 불필요 - 자동으로 Zoom이 실행됨
       } catch (e) {
         // rundll32 실패 시 폴백: CMD start 사용
         _logger.w('⚠️ rundll32 실패, CMD 폴백 시도: $e');
@@ -324,11 +308,45 @@ class ZoomLauncherService {
   ///
   /// 녹화가 끝난 후 Zoom 앱을 종료합니다.
   /// @param force 강제 종료 여부 (기본 false)
-  Future<bool> closeZoomMeeting({bool force = false}) async {
+  /// @param graceful UI Automation으로 Leave 버튼 클릭 시도 (기본 true)
+  Future<bool> closeZoomMeeting({bool force = false, bool graceful = true}) async {
     try {
       _logger.i('🚪 Zoom 회의 종료 시작...');
 
-      // Zoom 프로세스 종료
+      // Graceful 종료 시도: Leave 버튼 클릭
+      if (graceful && !force) {
+        _logger.i('🖱️ Leave 버튼 클릭 시도 (Graceful 종료)...');
+        
+        if (ZoomAutomationBindings.initializeUIAutomation() != 0) {
+          final leaveResult = automationBool(ZoomAutomationBindings.clickLeaveButton());
+          ZoomAutomationBindings.cleanupUIAutomation();
+          
+          if (leaveResult) {
+            _logger.i('✅ Leave 버튼 클릭 성공');
+            await Future.delayed(const Duration(seconds: 2)); // Zoom 종료 대기
+            
+            // 프로세스가 종료되었는지 확인
+            if (!await _isZoomProcessRunning()) {
+              _logger.i('✅ Zoom 앱 Graceful 종료 완료');
+              await _notifyTray('Zoom 종료', '회의를 정상적으로 나갔습니다.');
+              _updateAutomationState(
+                ZoomAutomationStage.idle,
+                '대기 중입니다. 다음 예약을 기다립니다.',
+              );
+              return true;
+            } else {
+              _logger.w('⚠️ Leave 버튼 클릭 후에도 프로세스가 남아있음, 강제 종료 시도...');
+            }
+          } else {
+            _logger.w('⚠️ Leave 버튼을 찾을 수 없음, 강제 종료 시도...');
+          }
+        } else {
+          _logger.w('⚠️ UI Automation 초기화 실패, 강제 종료 시도...');
+        }
+      }
+
+      // Fallback: taskkill로 강제 종료
+      _logger.i('🔨 taskkill로 Zoom 프로세스 종료...');
       final result = await Process.run('taskkill', [
         '/IM',
         'Zoom.exe',
@@ -336,7 +354,7 @@ class ZoomLauncherService {
       ], runInShell: true);
 
       if (result.exitCode == 0) {
-        _logger.i('✅ Zoom 앱 종료 완료');
+        _logger.i('✅ Zoom 앱 종료 완료 (taskkill)');
         await _notifyTray('Zoom 종료', '회의 창을 닫았습니다.');
         _updateAutomationState(
           ZoomAutomationStage.idle,
@@ -358,6 +376,40 @@ class ZoomLauncherService {
     } catch (e) {
       _logger.e('❌ Zoom 종료 실패', error: e);
       return false;
+    }
+  }
+
+  /// Zoom 회의 Leave 버튼 클릭 (UI Automation 사용)
+  /// 입력: 없음
+  /// 출력: 성공하면 true, 실패하면 false
+  /// 예외: UI Automation 초기화 실패 시 false 반환
+  Future<bool> leaveZoomMeeting() async {
+    try {
+      _logger.i('🚪 Zoom 회의 나가기 시도 (Leave 버튼 클릭)');
+
+      if (ZoomAutomationBindings.initializeUIAutomation() == 0) {
+        _logger.e('❌ UI Automation 초기화 실패 (Leave 버튼)');
+        return false;
+      }
+
+      final result = automationBool(ZoomAutomationBindings.clickLeaveButton());
+      if (result) {
+        _logger.i('✅ Leave 버튼 클릭 완료');
+        await _notifyTray('회의 나가기', 'Leave 버튼을 클릭했습니다.');
+        _updateAutomationState(
+          ZoomAutomationStage.idle,
+          '회의에서 나갔습니다.',
+        );
+      } else {
+        _logger.w('⚠️ Leave 버튼을 찾을 수 없습니다');
+      }
+
+      return result;
+    } catch (e, stackTrace) {
+      _logger.e('❌ Leave 버튼 클릭 실패', error: e, stackTrace: stackTrace);
+      return false;
+    } finally {
+      ZoomAutomationBindings.cleanupUIAutomation();
     }
   }
 
@@ -486,6 +538,10 @@ class ZoomLauncherService {
               ZoomAutomationStage.waitingRoom,
               '대기실 승인 결과를 확인하는 중입니다.',
             );
+
+            // 우선순위 1: Zoom 창 최대화
+            maximizeZoomWindow();
+
             return true;
           } else {
             _logger.d('⏳ 참가 버튼을 찾지 못함. 재시도 중... ($attempt/$maxAttempts)');
@@ -507,7 +563,7 @@ class ZoomLauncherService {
                 );
 
                 // 우선순위 1: Zoom 창 최대화
-                _maximizeZoomWindow();
+                maximizeZoomWindow();
 
                 // 우선순위 2: 팝업 다이얼로그 닫기 (예: 카메라 없음 경고)
                 await _closePopupDialogs();
@@ -526,10 +582,28 @@ class ZoomLauncherService {
                 );
 
                 // 우선순위 1: Zoom 창 최대화
-                _maximizeZoomWindow();
+                maximizeZoomWindow();
 
                 // 우선순위 2: 팝업 다이얼로그 닫기 (예: 카메라 없음 경고)
                 await _closePopupDialogs();
+
+                return true;
+              }
+
+              // 방법 3: 대기실 화면인지 확인 (이름 입력 없이 바로 대기실로 간 경우)
+              final inWaitingRoom = automationBool(
+                  ZoomAutomationBindings.checkWaitingRoom()
+              );
+              if (inWaitingRoom) {
+                _logger.i('✅ 이미 대기실에 있는 상태로 감지됨');
+                await _notifyTray('Zoom 자동 참가 완료', '대기실에 입장했습니다.');
+                _updateAutomationState(
+                  ZoomAutomationStage.waitingRoom,
+                  '대기실 승인 결과를 확인하는 중입니다.',
+                );
+
+                // 우선순위 1: Zoom 창 최대화
+                maximizeZoomWindow();
 
                 return true;
               }
@@ -552,17 +626,26 @@ class ZoomLauncherService {
       _logger.i('🔍 최종 확인: 이미 회의에 참가한 상태인지 확인...');
       final hasAudioButton = automationBool(ZoomAutomationBindings.joinWithAudio());
       final hasMuteButton = automationBool(ZoomAutomationBindings.setMuted(1));
+      final inWaitingRoomFinal = automationBool(ZoomAutomationBindings.checkWaitingRoom());
 
-      if (hasAudioButton || hasMuteButton) {
-        _logger.i('✅ 이미 회의에 참가한 상태로 확인됨');
-        await _notifyTray('Zoom 자동 참가 완료', '회의에 자동으로 입장했습니다.');
-        _updateAutomationState(
-          ZoomAutomationStage.waitingRoom,
-          '회의에 입장했습니다.',
-        );
+      if (hasAudioButton || hasMuteButton || inWaitingRoomFinal) {
+        _logger.i('✅ 이미 회의/대기실에 참가한 상태로 확인됨');
+        
+        if (inWaitingRoomFinal) {
+           _updateAutomationState(
+            ZoomAutomationStage.waitingRoom,
+            '대기실 승인 결과를 확인하는 중입니다.',
+          );
+        } else {
+          _updateAutomationState(
+            ZoomAutomationStage.waitingRoom,
+            '회의에 입장했습니다.',
+          );
+        }
+        await _notifyTray('Zoom 자동 참가 완료', '회의/대기실에 입장했습니다.');
 
         // 우선순위 1: Zoom 창 최대화
-        _maximizeZoomWindow();
+        maximizeZoomWindow();
 
         // 우선순위 2: 팝업 다이얼로그 닫기 (예: 카메라 없음 경고)
         await _closePopupDialogs();
@@ -829,7 +912,7 @@ class ZoomLauncherService {
   /// 입력: 없음
   /// 출력: 없음 (실패 시 로그만 출력)
   /// 예외: 없음
-  void _maximizeZoomWindow() {
+  void maximizeZoomWindow() {
     try {
       final result = automationBool(ZoomAutomationBindings.maximizeZoomWindow());
       if (result) {

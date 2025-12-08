@@ -33,6 +33,8 @@ class LoggerService {
 
   /// Logger 인스턴스 가져오기
   Logger get logger => _logger;
+  /// 현재 로그 파일 경로 제공 (없으면 null)
+  String? get currentLogFilePath => _currentLogFile?.path;
 
   /// 로거 초기화
   void _initializeLogger() {
@@ -181,6 +183,27 @@ class LoggerService {
   /// 리소스 정리
   void dispose() {
     _logger.i('📍 LoggerService 종료');
+  }
+
+  /// 최근 로그 라인을 읽어온다.
+  /// 입력: [maxLines]는 가져올 최대 줄 수 (기본 200).
+  /// 출력: 최신 순으로 정렬된 로그 문자열 리스트.
+  /// 예외: 파일 접근 실패 시 빈 리스트를 반환하고 stderr에만 경고를 남긴다.
+  Future<List<String>> readRecentLogLines({int maxLines = 200}) async {
+    try {
+      final file = _currentLogFile;
+      if (file == null || !await file.exists()) {
+        return [];
+      }
+      final lines = await file.readAsLines();
+      if (lines.length <= maxLines) {
+        return lines;
+      }
+      return lines.sublist(lines.length - maxLines);
+    } catch (e) {
+      stderr.writeln('⚠️ 로그 읽기 실패: $e');
+      return [];
+    }
   }
 }
 

@@ -72,6 +72,16 @@ class RecordingSchedule {
           'weekly 타입은 dayOfWeek 필수, oneTime 타입은 specificDate 필수',
         );
 
+  /// 타입 표시 이름
+  String get typeName {
+    switch (type) {
+      case ScheduleType.weekly:
+        return '매주 반복';
+      case ScheduleType.oneTime:
+        return '1회성';
+    }
+  }
+
   /// 스케줄 표시 이름 (요일 또는 날짜)
   String get scheduleDisplayName {
     if (type == ScheduleType.weekly) {

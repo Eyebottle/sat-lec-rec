@@ -404,10 +404,20 @@ BOOL ZoomAutomation_EnterNameAndJoin(const wchar_t* user_name) {
     return FALSE;
   }
 
+  // 1. 이름 입력 시도
   const bool name_ok = SetNameFieldValue(window_element.Get(), user_name);
+
+  // ⚠️ 중요: 이름 입력칸을 찾지 못했다면(즉, 이름 입력 화면이 아니라면)
+  // 절대 "참가" 버튼을 누르지 말아야 한다.
+  // Zoom 메인 화면에도 "참가" 버튼이 있어서, 이를 누르면 엉뚱한 동작(잘못된 회의 ID 팝업 등)을 유발함.
+  if (!name_ok) {
+    return FALSE;
+  }
+
+  // 2. 이름 입력에 성공했을 때만 참가 버튼 클릭
   const bool join_clicked = ClickJoinButton(window_element.Get());
 
-  return (name_ok && join_clicked) ? TRUE : FALSE;
+  return join_clicked ? TRUE : FALSE;
 }
 
 BOOL ZoomAutomation_CheckWaitingRoom() {
@@ -746,10 +756,12 @@ BOOL ZoomAutomation_ClosePopupDialogs() {
   }
 
   // 팝업 다이얼로그에서 찾을 키워드들
-  const std::array<std::wstring, 10> popup_keywords = {
+  // "잘못된 회의 ID" 팝업의 "확인([0])" 버튼도 처리할 수 있도록 관련 키워드 추가
+  const std::array<std::wstring, 14> popup_keywords = {
       L"cannot detect", L"카메라", L"camera", L"감지",
       L"not detected", L"찾을 수 없", L"확인", L"ok",
-      L"got it", L"알겠"};
+      L"got it", L"알겠",
+      L"잘못된", L"invalid", L"meeting id", L"회의 id"};
 
   // 버튼 타입의 요소 중 팝업 닫기 버튼 찾기
   ComPtr<IUIAutomationElement> close_button;
@@ -767,6 +779,74 @@ BOOL ZoomAutomation_ClosePopupDialogs() {
   }
 
   return SUCCEEDED(invoke_pattern->Invoke());
+}
+
+BOOL ZoomAutomation_ClickLeaveButton() {
+  // 입력: 없음
+  // 출력: "나가기"/"Leave" 버튼 클릭 성공 여부
+  // 예외: UI Automation 초기화가 안 되어 있으면 FALSE
+  //
+  // 목적: Zoom 회의 창에서 빨간색 "나가기"/"Leave" 버튼을 찾아 클릭
+  //       확인 다이얼로그가 나오면 "Leave Meeting" 버튼도 클릭
+  if (!EnsureAutomationReady()) {
+    return FALSE;
+  }
+
+  HWND zoom_window = nullptr;
+  if (!TryFindZoomWindow(&zoom_window)) {
+    return FALSE;
+  }
+
+  ComPtr<IUIAutomationElement> window_element;
+  if (FAILED(g_automation->ElementFromHandle(zoom_window, &window_element)) ||
+      !window_element) {
+    return FALSE;
+  }
+
+  // "나가기" / "Leave" / "End" 버튼 키워드
+  const std::array<std::wstring, 8> leave_keywords = {
+      L"leave", L"나가기", L"end", L"종료",
+      L"exit", L"leave meeting", L"회의 나가기", L"end meeting"};
+
+  ComPtr<IUIAutomationElement> leave_button;
+  if (!FindElementByControlType(window_element.Get(), UIA_ButtonControlTypeId,
+                                ToVector(leave_keywords), &leave_button)) {
+    return FALSE;
+  }
+
+  ComPtr<IUIAutomationInvokePattern> invoke_pattern;
+  if (FAILED(leave_button->GetCurrentPatternAs(
+          UIA_InvokePatternId, IID_PPV_ARGS(&invoke_pattern))) ||
+      !invoke_pattern) {
+    return FALSE;
+  }
+
+  // 첫 번째 버튼 클릭 (나가기 버튼)
+  if (FAILED(invoke_pattern->Invoke())) {
+    return FALSE;
+  }
+
+  // 확인 다이얼로그가 나올 수 있으므로 잠시 대기
+  Sleep(500);
+
+  // 확인 다이얼로그에서 "Leave Meeting" 버튼 찾기
+  // Zoom은 때때로 "Leave for All" vs "Leave Meeting" 선택지를 보여줌
+  const std::array<std::wstring, 6> confirm_leave_keywords = {
+      L"leave meeting", L"회의 나가기", L"leave for", L"exit",
+      L"확인", L"ok"};
+
+  ComPtr<IUIAutomationElement> confirm_button;
+  if (FindElementByControlType(window_element.Get(), UIA_ButtonControlTypeId,
+                               ToVector(confirm_leave_keywords), &confirm_button)) {
+    ComPtr<IUIAutomationInvokePattern> confirm_invoke;
+    if (SUCCEEDED(confirm_button->GetCurrentPatternAs(
+            UIA_InvokePatternId, IID_PPV_ARGS(&confirm_invoke))) &&
+        confirm_invoke) {
+      confirm_invoke->Invoke();
+    }
+  }
+
+  return TRUE;
 }
 
 void ZoomAutomation_Cleanup() {

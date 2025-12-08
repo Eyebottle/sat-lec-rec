@@ -12,6 +12,10 @@ import '../../models/app_settings.dart';
 import '../../services/settings_service.dart';
 import '../../utils/file_size_estimator.dart';
 import '../widgets/common/slider_with_input.dart';
+import '../widgets/common/app_card.dart';
+import '../widgets/common/app_button.dart';
+import '../style/app_colors.dart';
+import '../style/app_typography.dart';
 
 /// 설정 화면
 class SettingsScreen extends StatefulWidget {
@@ -478,167 +482,198 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildVideoSettingsCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.videocam, size: 24),
-                const SizedBox(width: 12),
-                Text(
-                  '비디오 설정',
-                  style: Theme.of(context).textTheme.titleLarge,
+    return AppCard.level1(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            icon: Icons.videocam_outlined,
+            title: '비디오 품질',
+            description: '해상도, 프레임 레이트, 화질을 설정합니다.',
+          ),
+          const SizedBox(height: 24),
+
+          // 해상도
+          Text('해상도', style: AppTypography.labelLarge),
+          const SizedBox(height: 8),
+          _buildInfoTip(
+            'Full HD는 작은 글씨도 선명하게 보이지만 파일 용량이 큽니다.',
+            icon: Icons.info_outline,
+            color: AppColors.info,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(
+                  value: 1920,
+                  label: Text('1080p (FHD)'),
+                  icon: Icon(Icons.hd_outlined),
+                ),
+                ButtonSegment(
+                  value: 1280,
+                  label: Text('720p (HD)'),
+                  icon: Icon(Icons.sd_outlined),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-
-            // 해상도
-            Text('해상도', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.help_outline, size: 16, color: Colors.green),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Full HD: PPT 슬라이드 선명 (권장) | HD: 저용량/빠른 인코딩',
-                      style: TextStyle(fontSize: 11, color: Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('1920x1080 (Full HD)'),
-                  selected: _settings.videoWidth == 1920,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _settings = _settings.copyWith(videoWidth: 1920, videoHeight: 1080);
-                        _markChanged();
-                      });
-                    }
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('1280x720 (HD)'),
-                  selected: _settings.videoWidth == 1280,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _settings = _settings.copyWith(videoWidth: 1280, videoHeight: 720);
-                        _markChanged();
-                      });
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // FPS
-            Text('FPS (프레임 레이트)', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.help_outline, size: 16, color: Colors.blue),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      '15fps: 저용량 | 24-30fps: 강의 권장 | 60fps: 게임/매끄러운 영상',
-                      style: TextStyle(fontSize: 11, color: Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            SliderWithInput(
-              value: _settings.videoFps.toDouble(),
-              min: 15,
-              max: 60,
-              divisions: 9,
-              suffix: 'fps',
-              onChanged: (value) {
+              selected: {_settings.videoWidth},
+              onSelectionChanged: (Set<int> newSelection) {
+                final width = newSelection.first;
+                final height = width == 1920 ? 1080 : 720;
                 setState(() {
-                  _settings = _settings.copyWith(videoFps: value.toInt());
+                  _settings = _settings.copyWith(videoWidth: width, videoHeight: height);
                   _markChanged();
                 });
               },
-            ),
-            const SizedBox(height: 16),
-
-            // CRF (품질)
-            Text('비디오 품질 (CRF)', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.help_outline, size: 16, color: Colors.orange),
-                      SizedBox(width: 6),
-                      Text(
-                        '낮을수록 고품질 (파일 크기 증가)',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    '18-20: 최고화질 (큰 파일) | 23: 기본값 | 28-30: 저용량',
-                    style: TextStyle(fontSize: 11, color: Colors.black87),
-                  ),
-                ],
+              style: ButtonStyle(
+                visualDensity: VisualDensity.comfortable,
+                shape: MaterialStateProperty.all(
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            SliderWithInput(
-              value: _settings.h264Crf.toDouble(),
-              min: 18,
-              max: 35,
-              divisions: 17,
-              onChanged: (value) {
-                setState(() {
-                  _settings = _settings.copyWith(h264Crf: value.toInt());
-                  _markChanged();
-                });
-              },
-            ),
-            const SizedBox(height: 20),
+          ),
+          const SizedBox(height: 32),
 
-            // 예상 파일 크기
-            const Divider(),
-            const SizedBox(height: 12),
-            _buildFileSizeEstimate(),
-          ],
+          // FPS
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('프레임 레이트 (FPS)', style: AppTypography.labelLarge),
+              Text(
+                '${_settings.videoFps} fps',
+                style: AppTypography.titleMedium.copyWith(color: AppColors.primary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Slider(
+            value: _settings.videoFps.toDouble(),
+            min: 15,
+            max: 60,
+            divisions: 3, // 15, 30, 45, 60 roughly or 9
+            label: '${_settings.videoFps} fps',
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(videoFps: value.toInt());
+                _markChanged();
+              });
+            },
+          ),
+          const Text(
+            '30fps가 강의 녹화에 가장 적합합니다.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 32),
+
+          // CRF (품질)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('화질 (CRF)', style: AppTypography.labelLarge),
+              Text(
+                '값: ${_settings.h264Crf}',
+                style: AppTypography.titleMedium.copyWith(color: AppColors.primary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _buildInfoTip(
+            '숫자가 낮을수록 고화질/대용량입니다. (권장: 20-23)',
+            icon: Icons.tips_and_updates_outlined,
+            color: AppColors.warning,
+          ),
+          const SizedBox(height: 12),
+          Slider(
+            value: _settings.h264Crf.toDouble(),
+            min: 18,
+            max: 35,
+            divisions: 17,
+            label: '${_settings.h264Crf}',
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(h264Crf: value.toInt());
+                _markChanged();
+              });
+            },
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('고화질 (18)', style: AppTypography.labelSmall),
+              Text('저용량 (35)', style: AppTypography.labelSmall),
+            ],
+          ),
+          const SizedBox(height: 32),
+
+          // 예상 파일 크기
+          const Divider(),
+          const SizedBox(height: 24),
+          _buildFileSizeEstimate(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    required String description,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppColors.primaryContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: AppColors.primary, size: 24),
         ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoTip(String text, {IconData icon = Icons.info_outline, Color color = AppColors.neutral500}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTypography.labelMedium.copyWith(color: AppColors.textSecondary),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -735,218 +770,169 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildAudioSettingsCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.audiotrack, size: 24),
-                const SizedBox(width: 12),
-                Text(
-                  '오디오 설정',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+    return AppCard.level1(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            icon: Icons.audiotrack_outlined,
+            title: '오디오 설정',
+            description: '녹음 음질과 비트레이트를 설정합니다.',
+          ),
+          const SizedBox(height: 24),
 
-            // 비트레이트
-            Text('오디오 비트레이트', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.purple.shade50,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.help_outline, size: 16, color: Colors.purple),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      '128: 저용량 | 192: 강의 권장 (명확한 음성) | 256: 음악 포함 시',
-                      style: TextStyle(fontSize: 11, color: Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('128 kbps'),
-                  selected: _settings.aacBitrate == 128000,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _settings = _settings.copyWith(aacBitrate: 128000);
-                        _markChanged();
-                      });
-                    }
-                  },
+          // 비트레이트
+          Text('오디오 비트레이트', style: AppTypography.labelLarge),
+          const SizedBox(height: 8),
+          _buildInfoTip(
+            '192kbps가 강의 녹음에 가장 적합하며, 256kbps는 음악이 포함된 경우 권장됩니다.',
+            icon: Icons.headphones_outlined,
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(
+                  value: 128000,
+                  label: Text('128k'),
+                  tooltip: '저용량',
                 ),
-                ChoiceChip(
-                  label: const Text('192 kbps'),
-                  selected: _settings.aacBitrate == 192000,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _settings = _settings.copyWith(aacBitrate: 192000);
-                        _markChanged();
-                      });
-                    }
-                  },
+                ButtonSegment(
+                  value: 192000,
+                  label: Text('192k (Standard)'),
+                  tooltip: '권장',
                 ),
-                ChoiceChip(
-                  label: const Text('256 kbps'),
-                  selected: _settings.aacBitrate == 256000,
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _settings = _settings.copyWith(aacBitrate: 256000);
-                        _markChanged();
-                      });
-                    }
-                  },
+                ButtonSegment(
+                  value: 256000,
+                  label: Text('256k (High)'),
+                  tooltip: '고음질',
                 ),
               ],
+              selected: {_settings.aacBitrate},
+              onSelectionChanged: (Set<int> newSelection) {
+                setState(() {
+                  _settings = _settings.copyWith(aacBitrate: newSelection.first);
+                  _markChanged();
+                });
+              },
+              style: ButtonStyle(
+                visualDensity: VisualDensity.comfortable,
+                shape: MaterialStateProperty.all(
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildZoomSettingsCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    return AppCard.level1(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            icon: Icons.video_call_outlined,
+            title: 'Zoom 자동화 설정',
+            description: 'Zoom 실행 및 자동 접속 관련 설정을 관리합니다.',
+          ),
+          const SizedBox(height: 24),
+
+          // Zoom 자동 실행 스위치
+          _buildSwitchTile(
+            title: 'Zoom 자동 실행',
+            description: '예약 녹화 시각에 맞춰 Zoom을 자동으로 실행합니다.',
+            value: _settings.enableAutoZoomLaunch,
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(enableAutoZoomLaunch: value);
+                _markChanged();
+              });
+            },
+          ),
+
+          if (_settings.enableAutoZoomLaunch) ...[
+            const SizedBox(height: 24),
+            _buildInfoTip(
+              'Zoom이 실행된 후, 회의에 완전히 접속할 때까지 기다리는 시간을 설정하세요.',
+              icon: Icons.timer_outlined,
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: 16),
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Icon(Icons.video_call, size: 24),
-                const SizedBox(width: 12),
+                Text('실행 대기 시간', style: AppTypography.labelLarge),
                 Text(
-                  'Zoom 설정',
-                  style: Theme.of(context).textTheme.titleLarge,
+                  '${_settings.zoomLaunchWaitSeconds}초',
+                  style: AppTypography.titleMedium.copyWith(color: AppColors.primary),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
-            SwitchListTile(
-              title: const Text('Zoom 자동 실행'),
-              subtitle: const Text('예약 녹화 시 Zoom을 자동으로 실행합니다'),
-              value: _settings.enableAutoZoomLaunch,
+            Slider(
+              value: _settings.zoomLaunchWaitSeconds.toDouble(),
+              min: 5,
+              max: 60,
+              divisions: 11,
+              label: '${_settings.zoomLaunchWaitSeconds}초',
               onChanged: (value) {
                 setState(() {
-                  _settings = _settings.copyWith(enableAutoZoomLaunch: value);
+                  _settings = _settings.copyWith(zoomLaunchWaitSeconds: value.toInt());
                   _markChanged();
                 });
               },
             ),
+            const SizedBox(height: 24),
 
-            const Divider(),
-
-            // 테스트용 Zoom 링크 입력
-            Text('테스트용 Zoom 링크 (선택사항)', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            TextFormField(
-              initialValue: _settings.testZoomLink ?? '',
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'https://zoom.us/j/당신의PMI번호',
-                prefixIcon: Icon(Icons.link),
-                helperText: 'PMI 링크를 입력하면 테스트 버튼으로 빠르게 테스트할 수 있습니다',
-                helperMaxLines: 2,
-              ),
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return null; // 선택사항이므로 빈 값 허용
-                }
-                if (!value.contains('zoom.us')) {
-                  return 'Zoom 링크는 "zoom.us"를 포함해야 합니다';
-                }
-                if (!value.startsWith('http')) {
-                  return 'https:// 또는 http://로 시작해야 합니다';
-                }
-                return null;
-              },
+            _buildSwitchTile(
+              title: '녹화 종료 후 Zoom 종료',
+              description: '녹화가 끝나면 Zoom 애플리케이션을 자동으로 닫습니다.',
+              value: _settings.autoCloseZoomAfterRecording,
               onChanged: (value) {
                 setState(() {
-                  _settings = _settings.copyWith(testZoomLink: value);
+                  _settings = _settings.copyWith(autoCloseZoomAfterRecording: value);
                   _markChanged();
                 });
               },
             ),
-
-            if (_settings.enableAutoZoomLaunch) ...[
-              const Divider(),
-              Text('Zoom 실행 후 대기 시간', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.teal.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.help_outline, size: 16, color: Colors.teal),
-                    SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Zoom이 완전히 실행될 때까지 기다리는 시간 (느린 PC는 길게 설정)',
-                        style: TextStyle(fontSize: 11, color: Colors.black87),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              SliderWithInput(
-                value: _settings.zoomLaunchWaitSeconds.toDouble(),
-                min: 5,
-                max: 30,
-                divisions: 5,
-                suffix: '초',
-                onChanged: (value) {
-                  setState(() {
-                    _settings = _settings.copyWith(zoomLaunchWaitSeconds: value.toInt());
-                    _markChanged();
-                  });
-                },
-              ),
-
-              const Divider(),
-              SwitchListTile(
-                title: const Text('녹화 종료 후 Zoom 자동 종료'),
-                subtitle: const Text('녹화가 끝나면 Zoom 앱을 자동으로 닫습니다'),
-                value: _settings.autoCloseZoomAfterRecording,
-                onChanged: (value) {
-                  setState(() {
-                    _settings = _settings.copyWith(autoCloseZoomAfterRecording: value);
-                    _markChanged();
-                  });
-                },
-              ),
-            ],
           ],
-        ),
+
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Divider(),
+          ),
+
+          // 테스트용 Zoom 링크 입력
+          Text('테스트용 Zoom 링크', style: AppTypography.labelLarge),
+          const SizedBox(height: 8),
+          TextFormField(
+            initialValue: _settings.testZoomLink ?? '',
+            decoration: const InputDecoration(
+              hintText: 'https://zoom.us/j/1234567890',
+              prefixIcon: Icon(Icons.link),
+              helperText: 'Zoom 실행 테스트 버튼을 누를 때 사용될 링크입니다.',
+            ),
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(testZoomLink: value);
+                _markChanged();
+              });
+            },
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildZoomApiSettingsCard() {
+    // Note: Controllers created here for stateless simplicity in this refactor, 
+    // ideally should be in State but keeping original logic structure for now.
     final TextEditingController accountIdController = TextEditingController(
       text: _settings.zoomApiAccountId ?? '',
     );
@@ -957,192 +943,185 @@ class _SettingsScreenState extends State<SettingsScreen> {
       text: _settings.zoomApiClientSecret ?? '',
     );
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.api, size: 24),
-                const SizedBox(width: 12),
-                Text(
-                  'Zoom API 설정',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '테스트용 Zoom 회의를 자동 생성하려면 Server-to-Server OAuth 앱이 필요합니다',
-                      style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
+    return AppCard.level1(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            icon: Icons.api_outlined,
+            title: 'Zoom API 설정 (고급)',
+            description: '자동 회의 생성 등 고급 기능을 위해 설정합니다.',
+          ),
+          const SizedBox(height: 24),
+          _buildInfoTip(
+            'Server-to-Server OAuth 앱 설정이 필요합니다.',
+            icon: Icons.vpn_key_outlined,
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 24),
 
-            // Account ID
-            Text('Account ID', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            TextField(
-              controller: accountIdController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Zoom 계정 ID 입력',
-                prefixIcon: Icon(Icons.account_circle),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _settings = _settings.copyWith(zoomApiAccountId: value);
-                  _markChanged();
-                });
-              },
+          // Account ID
+          Text('Account ID', style: AppTypography.labelLarge),
+          const SizedBox(height: 8),
+          TextField(
+            controller: accountIdController,
+            decoration: const InputDecoration(
+              hintText: 'Zoom Account ID',
+              prefixIcon: Icon(Icons.account_circle_outlined),
             ),
-            const SizedBox(height: 16),
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(zoomApiAccountId: value);
+                _markChanged();
+              });
+            },
+          ),
+          const SizedBox(height: 16),
 
-            // Client ID
-            Text('Client ID', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            TextField(
-              controller: clientIdController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'OAuth 앱 Client ID 입력',
-                prefixIcon: Icon(Icons.vpn_key),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _settings = _settings.copyWith(zoomApiClientId: value);
-                  _markChanged();
-                });
-              },
+          // Client ID
+          Text('Client ID', style: AppTypography.labelLarge),
+          const SizedBox(height: 8),
+          TextField(
+            controller: clientIdController,
+            decoration: const InputDecoration(
+              hintText: 'OAuth Client ID',
+              prefixIcon: Icon(Icons.vpn_key_outlined),
             ),
-            const SizedBox(height: 16),
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(zoomApiClientId: value);
+                _markChanged();
+              });
+            },
+          ),
+          const SizedBox(height: 16),
 
-            // Client Secret
-            Text('Client Secret', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            TextField(
-              controller: clientSecretController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'OAuth 앱 Client Secret 입력',
-                prefixIcon: Icon(Icons.lock),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _settings = _settings.copyWith(zoomApiClientSecret: value);
-                  _markChanged();
-                });
-              },
+          // Client Secret
+          Text('Client Secret', style: AppTypography.labelLarge),
+          const SizedBox(height: 8),
+          TextField(
+            controller: clientSecretController,
+            obscureText: true,
+            decoration: const InputDecoration(
+              hintText: 'OAuth Client Secret',
+              prefixIcon: Icon(Icons.lock_outlined),
             ),
-            const SizedBox(height: 16),
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(zoomApiClientSecret: value);
+                _markChanged();
+              });
+            },
+          ),
+          const SizedBox(height: 24),
 
-            // 도움말 링크
-            OutlinedButton.icon(
+          // 도움말 링크
+          SizedBox(
+            width: double.infinity,
+            child: AppButton.secondary(
               onPressed: () {
-                // 도움말 다이얼로그 표시
                 showDialog(
                   context: context,
                   builder: (context) => AlertDialog(
-                    title: const Text('📚 Zoom API 설정 방법'),
-                    content: const SingleChildScrollView(
-                      child: Text(
-                        '1. Zoom App Marketplace 접속\n'
-                        '   https://marketplace.zoom.us/\n\n'
-                        '2. "Develop" → "Build App" 클릭\n\n'
-                        '3. "Server-to-Server OAuth" 선택\n\n'
-                        '4. 앱 생성 후 다음 정보 복사:\n'
-                        '   • Account ID\n'
-                        '   • Client ID\n'
-                        '   • Client Secret\n\n'
-                        '5. Scopes 권한 추가:\n'
-                        '   • meeting:write:admin\n'
-                        '   • user:read:admin\n\n'
-                        '6. 활성화 후 위 정보를 입력하세요',
-                        style: TextStyle(height: 1.5),
-                      ),
+                    title: const Text('Zoom API 설정 방법'),
+                    content: const Text(
+                      '1. Zoom App Marketplace (marketplace.zoom.us) 접속\n'
+                      '2. Develop > Build App > Server-to-Server OAuth 선택\n'
+                      '3. App Credentials에서 정보 복사\n'
+                      '4. Scopes에 meeting:write:admin, user:read:admin 추가',
                     ),
                     actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('닫기'),
-                      ),
+                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인')),
                     ],
                   ),
                 );
               },
-              icon: const Icon(Icons.help_outline),
-              label: const Text('설정 방법 보기'),
+              icon: Icons.help_outline,
+              child: const Text('설정 가이드 보기'),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildOtherSettingsCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return AppCard.level1(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            icon: Icons.tune_outlined,
+            title: '기타 설정',
+            description: '시스템 동작 및 기타 옵션입니다.',
+          ),
+          const SizedBox(height: 24),
+
+          _buildSwitchTile(
+            title: '헬스체크 활성화',
+            description: '녹화 10분 전 시스템 상태(디스크, 인터넷)를 확인합니다.',
+            value: _settings.enableHealthCheck,
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(enableHealthCheck: value);
+                _markChanged();
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildSwitchTile(
+            title: '윈도우 시작 시 자동 실행',
+            description: 'PC가 켜질 때 앱을 백그라운드로 실행합니다.',
+            value: _settings.launchAtStartup,
+            onChanged: (value) {
+              setState(() {
+                _settings = _settings.copyWith(launchAtStartup: value);
+                _markChanged();
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSwitchTile({
+    required String title,
+    required String description,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return AppCard.level2(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      onTap: () => onChanged(!value),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.tune, size: 24),
-                const SizedBox(width: 12),
                 Text(
-                  '기타 설정',
-                  style: Theme.of(context).textTheme.titleLarge,
+                  title,
+                  style: AppTypography.titleMedium.copyWith(fontSize: 15),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
-            SwitchListTile(
-              title: const Text('헬스체크 활성화'),
-              subtitle: const Text('녹화 10분 전 시스템 상태를 확인합니다'),
-              value: _settings.enableHealthCheck,
-              onChanged: (value) {
-                setState(() {
-                  _settings = _settings.copyWith(enableHealthCheck: value);
-                  _markChanged();
-                });
-              },
+          ),
+          Transform.scale(
+            scale: 0.9,
+            child: Switch(
+              value: value,
+              onChanged: onChanged,
             ),
-
-            const Divider(),
-
-            SwitchListTile(
-              title: const Text('시작 시 자동 실행'),
-              subtitle: const Text('Windows 시작 시 앱을 자동으로 실행합니다'),
-              value: _settings.launchAtStartup,
-              onChanged: (value) {
-                setState(() {
-                  _settings = _settings.copyWith(launchAtStartup: value);
-                  _markChanged();
-                });
-              },
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

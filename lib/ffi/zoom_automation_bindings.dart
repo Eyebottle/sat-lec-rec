@@ -114,6 +114,16 @@ class ZoomAutomationBindings {
           'ZoomAutomation_ClosePopupDialogs')
       .asFunction();
 
+  /// Zoom 회의 나가기 버튼 클릭
+  /// 입력: 없음
+  /// 출력: 성공 시 1, 실패 시 0
+  /// 예외: Leave 버튼을 찾을 수 없으면 0
+  /// 참고: 확인 다이얼로그가 나오면 자동으로 "Leave Meeting" 버튼도 클릭
+  static final DartNoParamBool clickLeaveButton = _lib
+      .lookup<ffi.NativeFunction<NativeNoParamBool>>(
+          'ZoomAutomation_ClickLeaveButton')
+      .asFunction();
+
   /// UI Automation 세션 정리
   static final DartCleanup cleanupUIAutomation = _lib
       .lookup<ffi.NativeFunction<NativeCleanup>>('ZoomAutomation_Cleanup')
