@@ -19,7 +19,6 @@ import '../style/app_typography.dart';
 import '../style/app_spacing.dart';
 import 'schedule_screen.dart';
 import 'settings_screen.dart';
-import 'zoom_test_screen.dart';
 
 final logger = LoggerService.instance.logger;
 
@@ -648,23 +647,6 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
               ),
             ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        // Zoom 자동화 테스트 화면으로 가는 버튼
-        SizedBox(
-          width: double.infinity,
-          child: AppButton(
-            onPressed: () {
-              logger.d('Zoom 자동화 테스트 화면 이동');
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const ZoomTestScreen()),
-              );
-            },
-            backgroundColor: const Color(0xFF9C27B0), // Purple for Science/Test
-            icon: Icons.science_outlined,
-            child: const Text('Zoom 자동화 전체 테스트 (Beta)'),
-          ),
         ),
       ],
     );
