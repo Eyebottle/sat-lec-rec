@@ -55,6 +55,18 @@ bool LibavEncoder::Start(const LibavEncoderConfig& config) {
     printf("[LibavEncoder] 초기화 시작...\n");
     fflush(stdout);
 
+    // QPC 주파수 및 시작 시점 초기화 (A/V 동기화의 핵심)
+    // ⚠️ 중요: 오디오/비디오 모두 이 시점을 기준으로 PTS를 계산함
+    LARGE_INTEGER freq, start;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&start);
+    qpc_frequency_ = freq.QuadPart;
+    recording_start_qpc_ = start.QuadPart;
+
+    printf("[LibavEncoder] QPC 초기화: freq=%llu, start=%llu\n",
+           qpc_frequency_, recording_start_qpc_);
+    fflush(stdout);
+
     // 1. AVFormatContext 생성
     if (!InitializeFormat()) {
         Cleanup();
@@ -324,7 +336,7 @@ bool LibavEncoder::WriteHeader() {
 // 인코딩
 // ==============================================================================
 
-bool LibavEncoder::EncodeVideo(const uint8_t* bgra_data, size_t length) {
+bool LibavEncoder::EncodeVideo(const uint8_t* bgra_data, size_t length, uint64_t capture_qpc) {
     if (!is_running_) {
         SetLastError("인코더가 실행 중이 아닙니다");
         return false;
@@ -342,8 +354,31 @@ bool LibavEncoder::EncodeVideo(const uint8_t* bgra_data, size_t length) {
         return false;
     }
 
-    // 2. PTS 설정
-    video_frame_->pts = next_video_pts_++;
+    // 2. QPC 기반 PTS 계산 (A/V 동기화 핵심)
+    // ⚠️ 중요: 카운터 기반(next_video_pts_++)이 아닌 실제 경과 시간 사용
+    // 이렇게 해야 정적 화면에서도 오디오와 동기화됨
+    int64_t pts = 0;
+    if (qpc_frequency_ > 0 && capture_qpc >= recording_start_qpc_) {
+        // 경과 시간(초) = (현재 QPC - 시작 QPC) / QPC 주파수
+        double elapsed_seconds = static_cast<double>(capture_qpc - recording_start_qpc_)
+                                / static_cast<double>(qpc_frequency_);
+
+        // PTS = 경과 시간 × time_base.den (fps)
+        // time_base = 1/fps 이므로 time_base.den = fps
+        pts = static_cast<int64_t>(elapsed_seconds * video_codec_ctx_->time_base.den);
+
+        // 단조 증가 보장: PTS가 이전보다 작거나 같으면 직전+1 사용
+        if (pts <= last_video_pts_) {
+            pts = last_video_pts_ + 1;
+        }
+        last_video_pts_ = pts;
+    } else {
+        // QPC 미초기화 시 폴백 (이론상 발생 안함)
+        pts = (last_video_pts_ < 0) ? 0 : last_video_pts_ + 1;
+        last_video_pts_ = pts;
+    }
+
+    video_frame_->pts = pts;
 
     // 3. 인코더에 전송
     return SendVideoFrame(video_frame_);
@@ -381,10 +416,15 @@ bool LibavEncoder::SendVideoFrame(AVFrame* frame) {
     return ReceiveAndWritePackets(video_codec_ctx_, video_stream_->index);
 }
 
-bool LibavEncoder::EncodeAudio(const uint8_t* float32_data, size_t length) {
+bool LibavEncoder::EncodeAudio(const uint8_t* float32_data, size_t length, uint64_t capture_qpc) {
     if (!is_running_) {
         SetLastError("인코더가 실행 중이 아닙니다");
         return false;
+    }
+
+    // 첫 오디오 샘플의 QPC 저장 (오디오 타임라인 기준점)
+    if (first_audio_qpc_ == 0) {
+        first_audio_qpc_ = capture_qpc;
     }
 
     // 1. 입력 데이터를 버퍼에 추가
@@ -419,9 +459,36 @@ bool LibavEncoder::EncodeAudio(const uint8_t* float32_data, size_t length) {
             return false;
         }
 
-        // 2.3. PTS 설정
-        audio_frame_->pts = next_audio_pts_;
-        next_audio_pts_ += frame_size;
+        // 2.3. QPC 기반 PTS 계산 (A/V 동기화 핵심)
+        // ⚠️ 중요: 비디오와 동일한 벽시계(recording_start_qpc_) 기준 사용
+        // 오디오 time_base = 1/sample_rate 이므로 time_base.den = sample_rate
+        int64_t pts = 0;
+        if (qpc_frequency_ > 0 && capture_qpc >= recording_start_qpc_) {
+            // 경과 시간(초) = (현재 QPC - 시작 QPC) / QPC 주파수
+            double elapsed_seconds = static_cast<double>(capture_qpc - recording_start_qpc_)
+                                    / static_cast<double>(qpc_frequency_);
+
+            // PTS = 경과 시간 × sample_rate + 누적 오프셋
+            // 각 프레임은 frame_size 샘플이므로 누적해서 계산
+            pts = static_cast<int64_t>(elapsed_seconds * audio_codec_ctx_->sample_rate)
+                  + audio_samples_written_;
+
+            // 단조 증가 보장
+            if (pts <= last_audio_pts_) {
+                pts = last_audio_pts_ + 1;
+            }
+            last_audio_pts_ = pts;
+        } else {
+            // QPC 미초기화 시 폴백
+            pts = audio_samples_written_;
+            if (pts <= last_audio_pts_) {
+                pts = last_audio_pts_ + 1;
+            }
+            last_audio_pts_ = pts;
+        }
+
+        audio_frame_->pts = pts;
+        audio_samples_written_ += frame_size;
 
         // 2.4. 인코더에 전송
         if (!SendAudioFrame(audio_frame_)) {
@@ -578,7 +645,11 @@ void LibavEncoder::Cleanup() {
     video_stream_ = nullptr;
     audio_stream_ = nullptr;
 
-    // PTS 초기화
-    next_video_pts_ = 0;
-    next_audio_pts_ = 0;
+    // PTS 및 QPC 상태 초기화
+    last_video_pts_ = -1;
+    last_audio_pts_ = -1;
+    first_audio_qpc_ = 0;
+    audio_samples_written_ = 0;
+    recording_start_qpc_ = 0;
+    qpc_frequency_ = 0;
 }

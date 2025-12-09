@@ -58,8 +58,9 @@ public:
     // 프레임/오디오 인코딩
     // bgra_data: 1920x1080x4 바이트 (BGRA 포맷)
     // float32_data: 오디오 샘플 (Interleaved Float32, L/R/L/R...)
-    bool EncodeVideo(const uint8_t* bgra_data, size_t length);
-    bool EncodeAudio(const uint8_t* float32_data, size_t length);
+    // capture_qpc: QueryPerformanceCounter 값 (A/V 동기화용)
+    bool EncodeVideo(const uint8_t* bgra_data, size_t length, uint64_t capture_qpc);
+    bool EncodeAudio(const uint8_t* float32_data, size_t length, uint64_t capture_qpc);
 
     // 에러 처리
     std::string GetLastError() const { return last_error_; }
@@ -99,15 +100,21 @@ private:
     AVStream* video_stream_ = nullptr;
     AVFrame* video_frame_ = nullptr;
     SwsContext* sws_ctx_ = nullptr;
-    int64_t next_video_pts_ = 0;
+    int64_t last_video_pts_ = -1;  // 단조 증가 보장용 (이전 PTS)
 
     // === Audio ===
     AVCodecContext* audio_codec_ctx_ = nullptr;
     AVStream* audio_stream_ = nullptr;
     AVFrame* audio_frame_ = nullptr;
     SwrContext* swr_ctx_ = nullptr;
-    int64_t next_audio_pts_ = 0;
+    int64_t last_audio_pts_ = -1;  // 단조 증가 보장용 (이전 PTS)
     std::vector<float> audio_buffer_;  // 오디오 샘플 버퍼 (Interleaved Float32)
+    uint64_t first_audio_qpc_ = 0;     // 첫 오디오 샘플의 QPC (누적 PTS 계산용)
+    int64_t audio_samples_written_ = 0; // 누적 작성 샘플 수
+
+    // === QPC 타임스탬프 (A/V 동기화) ===
+    uint64_t recording_start_qpc_ = 0;  // 녹화 시작 시점의 QPC
+    uint64_t qpc_frequency_ = 0;        // QPC 주파수 (초당 틱 수)
 
     // === 상태 ===
     bool is_running_ = false;

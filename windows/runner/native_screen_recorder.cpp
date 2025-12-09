@@ -518,7 +518,9 @@ static bool ProcessNextVideoFrame() {
         return false;
     }
 
-    if (!g_libav_encoder->EncodeVideo(frame.pixels.data(), frame.pixels.size())) {
+    // ⚠️ 중요: 캡처 시점의 QPC 타임스탬프를 인코더에 전달 (A/V 동기화 핵심)
+    // 기존 카운터 기반 PTS 대신 실제 벽시계 시간 사용
+    if (!g_libav_encoder->EncodeVideo(frame.pixels.data(), frame.pixels.size(), frame.timestamp)) {
         SetLastError(g_libav_encoder->GetLastError());
         return false;
     }
@@ -579,7 +581,9 @@ static bool ProcessNextAudioSample() {
         audio_debug_log_count++;
     }
 
-    if (!g_libav_encoder->EncodeAudio(audio.data.data(), audio.data.size())) {
+    // ⚠️ 중요: 캡처 시점의 QPC 타임스탬프를 인코더에 전달 (A/V 동기화 핵심)
+    // 비디오와 동일한 벽시계 기준으로 PTS 계산됨
+    if (!g_libav_encoder->EncodeAudio(audio.data.data(), audio.data.size(), audio.timestamp)) {
         const std::string encoder_error = g_libav_encoder->GetLastError();
         printf("[C++] ❌ 오디오 패킷 #%d 인코딩 실패\n", next_packet_index);
         printf("[C++]    에러 메시지: %s\n", encoder_error.c_str());
