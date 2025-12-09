@@ -1088,21 +1088,49 @@ static void CaptureThreadFunc(
     printf("[C++] ✅ 모든 초기화 완료, 녹화 시작\\n");
     fflush(stdout);
 
-    // 메인 캡처 루프
+    // 메인 캡처 루프 (FPS 제한 적용)
     int frame_count = 0;
     g_capture_failure_count = 0;  // 실패 카운터 초기화
-    printf("[C++] 프레임 캡처 루프 시작...\\n");
+
+    // FPS 제한을 위한 타이밍 계산
+    // 예: 24fps → 프레임 간격 약 41.67ms
+    const double target_frame_interval_ms = 1000.0 / fps;
+    LARGE_INTEGER last_frame_qpc;
+    QueryPerformanceCounter(&last_frame_qpc);
+
+    printf("[C++] 프레임 캡처 루프 시작 (목표: %dfps, 간격: %.2fms)\\n", fps, target_frame_interval_ms);
     fflush(stdout);
 
     while (g_is_recording) {
+        // FPS 제한: 목표 프레임 간격이 지날 때까지 대기
+        LARGE_INTEGER current_qpc;
+        QueryPerformanceCounter(&current_qpc);
+        double elapsed_ms = static_cast<double>(current_qpc.QuadPart - last_frame_qpc.QuadPart)
+                           * 1000.0 / g_qpc_frequency.QuadPart;
+
+        if (elapsed_ms < target_frame_interval_ms) {
+            // 남은 시간만큼 Sleep (CPU 절약)
+            DWORD sleep_ms = static_cast<DWORD>(target_frame_interval_ms - elapsed_ms);
+            if (sleep_ms > 0) {
+                Sleep(sleep_ms);
+            }
+            continue;  // 다시 시간 체크
+        }
+
+        // 프레임 캡처 시점 기록 (다음 간격 계산용)
+        QueryPerformanceCounter(&last_frame_qpc);
+
         if (CaptureFrame()) {
             frame_count++;
             if (frame_count == 1) {
                 printf("[C++] 🎬 첫 번째 프레임 캡처 성공!\n");
                 fflush(stdout);
             }
-            if (frame_count % 300 == 0) {  // 10초마다 로그 (30fps 기준)
-                printf("[C++] 📊 캡처된 프레임: %d\n", frame_count);
+            if (frame_count % (fps * 10) == 0) {  // 10초마다 로그
+                double actual_fps = static_cast<double>(frame_count) /
+                    (static_cast<double>(last_frame_qpc.QuadPart - g_recording_start_qpc.QuadPart)
+                     / g_qpc_frequency.QuadPart);
+                printf("[C++] 📊 캡처된 프레임: %d (실제 FPS: %.1f)\n", frame_count, actual_fps);
                 fflush(stdout);
             }
         } else {
