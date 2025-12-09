@@ -140,106 +140,85 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
 
     final progress = _progress!;
 
-    return AppCard.level2(
-      color: AppColors.recordingActive.withValues(alpha: 0.1),
-      child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 헤더: 녹화 중 표시 (상위 위젯에서 처리할 수도 있으나, 여기서는 타이머/상태 정보가 있으므로 유지하되 간소화)
+        Row(
           children: [
-            // 헤더: 녹화 중 표시
-            Row(
-              children: [
-                // 빨간 점 애니메이션
-                Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: AppColors.recordingActive,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.recordingActive.withValues(alpha: 0.5),
-                        blurRadius: 8,
-                        spreadRadius: 2,
-                      ),
-                    ],
+            // 빨간 점 애니메이션
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: AppColors.recordingActive,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.recordingActive.withValues(alpha: 0.5),
+                    blurRadius: 6,
+                    spreadRadius: 2,
                   ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '녹화 중',
-                  style: AppTypography.titleMedium,
-                ),
-                const Spacer(),
-                // 경과 시간 (크게 표시)
-                Text(
-                  progress.formattedTime,
-                  style: AppTypography.numberMedium.copyWith(
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            // 진행 상황 상세 정보
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildStatItem(
-                  context,
-                  icon: Icons.video_library,
-                  label: '비디오 프레임',
-                  value: progress.videoFrameCount.toString(),
-                ),
-                _buildStatItem(
-                  context,
-                  icon: Icons.audiotrack,
-                  label: '오디오 샘플',
-                  value: _formatLargeNumber(progress.audioSampleCount),
-                ),
-                _buildStatItem(
-                  context,
-                  icon: Icons.storage,
-                  label: '예상 크기',
-                  value: '${progress.estimatedFileSizeMB.toStringAsFixed(1)} MB',
-                ),
-              ],
+            const SizedBox(width: 8),
+            Text(
+              progress.formattedTime,
+              style: AppTypography.titleMedium.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontFeatures: [const FontFeature.tabularFigures()],
+              ),
             ),
-            const SizedBox(height: 12),
-            // Phase 3.1.2: 오디오 레벨 미터
-            _buildAudioLevelMeter(context, progress),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildAudioLevelMeter(context, progress),
+            ),
           ],
         ),
+        const SizedBox(height: 12),
+        // 진행 상황 상세 정보 (한 줄로 컴팩트하게)
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          decoration: BoxDecoration(
+            color: AppColors.neutral100,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildCompactStat(Icons.video_camera_back_outlined, '${progress.videoFrameCount} frames'),
+              _buildVerticalDivider(),
+              _buildCompactStat(Icons.audiotrack_outlined, _formatLargeNumber(progress.audioSampleCount)),
+              _buildVerticalDivider(),
+              _buildCompactStat(Icons.save_outlined, '${progress.estimatedFileSizeMB.toStringAsFixed(1)} MB'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
-  /// 통계 항목 위젯 빌더
-  Widget _buildStatItem(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Column(
+  Widget _buildVerticalDivider() {
+    return Container(
+      width: 1,
+      height: 12,
+      color: AppColors.neutral300,
+    );
+  }
+
+  Widget _buildCompactStat(IconData icon, String text) {
+    return Row(
       children: [
-        Icon(
-          icon,
-          size: 20,
-          color: Theme.of(context).colorScheme.onSecondaryContainer,
-        ),
-        const SizedBox(height: 4),
+        Icon(icon, size: 14, color: AppColors.textSecondary),
+        const SizedBox(width: 4),
         Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSecondaryContainer.withValues(alpha: 0.7),
-              ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onSecondaryContainer,
-              ),
+          text,
+          style: AppTypography.bodySmall.copyWith(
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -257,10 +236,9 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
     }
   }
 
-  /// Phase 3.1.2: 오디오 레벨 미터 위젯 빌더
+  /// Phase 3.1.2: 오디오 레벨 미터 위젯 빌더 (Compact)
   Widget _buildAudioLevelMeter(BuildContext context, RecordingProgress progress) {
     // RMS 레벨을 dB로 변환 (UI 표시용)
-    // -60dB ~ 0dB 범위로 매핑
     final rmsDb = progress.audioLevel > 0.0
         ? (20 * (progress.audioLevel.clamp(0.0001, 1.0)).log10())
         : -60.0;
@@ -271,68 +249,55 @@ class _RecordingProgressWidgetState extends State<RecordingProgressWidget> {
     // 레벨에 따라 색상 결정
     Color levelColor;
     if (normalizedLevel > 0.9) {
-      levelColor = Colors.red; // 클리핑 위험
+      levelColor = Colors.red;
     } else if (normalizedLevel > 0.7) {
-      levelColor = Colors.orange; // 높음
+      levelColor = Colors.orange;
     } else if (normalizedLevel > 0.3) {
-      levelColor = Colors.green; // 적정
+      levelColor = Colors.green;
     } else {
-      levelColor = Colors.blue; // 낮음
+      levelColor = Colors.blue;
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Row(
-          children: [
-            Icon(
-              Icons.graphic_eq,
-              size: 16,
-              color: Theme.of(context).colorScheme.onSecondaryContainer,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              '오디오 레벨',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSecondaryContainer.withValues(alpha: 0.7),
-                  ),
-            ),
-            const Spacer(),
-            Text(
-              '${(normalizedLevel * 100).toStringAsFixed(0)}%',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSecondaryContainer,
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-          ],
+        Icon(
+          Icons.graphic_eq,
+          size: 16,
+          color: AppColors.textSecondary,
         ),
-        const SizedBox(height: 6),
-        // 레벨 바
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: Container(
-            height: 8,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSecondaryContainer.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: FractionallySizedBox(
-              alignment: Alignment.centerLeft,
-              widthFactor: normalizedLevel,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: levelColor,
-                  borderRadius: BorderRadius.circular(4),
-                  boxShadow: [
-                    BoxShadow(
-                      color: levelColor.withValues(alpha: 0.5),
-                      blurRadius: 4,
-                      spreadRadius: 1,
-                    ),
-                  ],
+        const SizedBox(width: 8),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              height: 6, // 높이 축소
+              decoration: BoxDecoration(
+                color: AppColors.neutral200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: normalizedLevel,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: levelColor,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 32, // 고정 폭으로 흔들림 방지
+          child: Text(
+            '${(normalizedLevel * 100).toStringAsFixed(0)}%',
+            textAlign: TextAlign.end,
+            style: AppTypography.bodySmall.copyWith(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.bold,
+              fontSize: 11,
             ),
           ),
         ),
