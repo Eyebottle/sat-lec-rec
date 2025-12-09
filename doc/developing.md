@@ -350,3 +350,36 @@
   1. `ProcessNextAudioSample()` → `g_ffmpeg_pipeline->WriteAudio(...)` 경로가 실행되는지 로그/디버그로 확인
   2. `WriteAudio` 실패 시 에러 로그를 출력해 파이프 상태 파악
   3. 필요 시 파이프 모드(PIPE_ACCESS_DUPLEX, OVERLAPPED) 또는 쓰기 타이밍 추가 조정
+
+## 2025-12-09 오디오 PTS 2배 버그 수정
+
+- **문제**: 15분 녹화 시 실제 파일 길이가 30분(1800초)으로 저장됨
+- **진단 방법**:
+  - `ffprobe` 결과: `duration=1799.957208` (정확히 2배)
+  - 로그 분석: 녹화 시간 900초로 기록되었으나 파일은 2배 길이
+
+- **원인**: `libav_encoder.cpp`의 오디오 PTS 계산에서 이중 카운팅 버그
+  ```cpp
+  // 버그 코드 (기존)
+  pts = static_cast<int64_t>(elapsed_seconds * sample_rate) + audio_samples_written_;
+  // elapsed_seconds * sample_rate ≈ audio_samples_written_ 이므로 2배!
+  ```
+
+- **수정**:
+  ```cpp
+  // 수정 코드
+  int64_t pts = audio_samples_written_;
+  ```
+  - 오디오는 연속 스트림이므로 단순히 누적 샘플 수만 PTS로 사용
+  - 불필요한 `first_audio_qpc_` 관련 코드 제거
+
+- **커밋**: `1767eca` - fix: 오디오 PTS 2배 버그 수정
+
+- **파일 변경**: `windows/runner/libav_encoder.cpp` (10줄 추가, 31줄 삭제)
+
+- **테스트 필요**: Windows에서 `flutter build windows --debug` 후 녹화 테스트
+
+- **학습 교훈**:
+  - QPC 기반 타임스탬프와 샘플 카운터를 혼용하면 안 됨
+  - 오디오 PTS는 단순히 누적 샘플 수로 계산하는 것이 정확함
+  - 비디오는 QPC 기반 경과 시간 사용, 오디오는 샘플 카운터 사용이 올바른 패턴
