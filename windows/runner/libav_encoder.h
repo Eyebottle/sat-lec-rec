@@ -109,8 +109,11 @@ private:
     SwrContext* swr_ctx_ = nullptr;
     int64_t last_audio_pts_ = -1;  // 단조 증가 보장용 (이전 PTS)
     std::vector<float> audio_buffer_;  // 오디오 샘플 버퍼 (Interleaved Float32)
-    uint64_t first_audio_qpc_ = 0;     // 첫 오디오 샘플의 QPC (누적 PTS 계산용)
-    int64_t audio_samples_written_ = 0; // 누적 작성 샘플 수
+    uint64_t first_audio_qpc_ = 0;     // 첫 오디오 샘플의 QPC (디버그용)
+    int64_t audio_samples_written_ = 0; // 누적 작성 샘플 수 (통계용)
+
+    // === 디버그용 플래그 ===
+    bool first_video_logged_ = false;  // 첫 비디오 프레임 로그 출력 여부
 
     // === QPC 타임스탬프 (A/V 동기화) ===
     uint64_t recording_start_qpc_ = 0;  // 녹화 시작 시점의 QPC

@@ -342,6 +342,18 @@ bool LibavEncoder::EncodeVideo(const uint8_t* bgra_data, size_t length, uint64_t
         return false;
     }
 
+    // 첫 비디오 프레임 시점 로그 (디버그 및 동기화 검증용)
+    if (!first_video_logged_ && capture_qpc > 0) {
+        first_video_logged_ = true;
+        double offset_from_start = 0.0;
+        if (qpc_frequency_ > 0 && capture_qpc >= recording_start_qpc_) {
+            offset_from_start = static_cast<double>(capture_qpc - recording_start_qpc_)
+                               / static_cast<double>(qpc_frequency_) * 1000.0;  // ms
+        }
+        printf("[LibavEncoder] 🎬 첫 비디오 프레임: 녹화 시작 후 %.2fms\n", offset_from_start);
+        fflush(stdout);
+    }
+
     // 예상 크기 검증
     size_t expected_size = config_.video_width * config_.video_height * 4;
     if (length != expected_size) {
@@ -422,6 +434,18 @@ bool LibavEncoder::EncodeAudio(const uint8_t* float32_data, size_t length, uint6
         return false;
     }
 
+    // 첫 오디오 패킷 시점 기록 (디버그 및 동기화 검증용)
+    if (first_audio_qpc_ == 0 && capture_qpc > 0) {
+        first_audio_qpc_ = capture_qpc;
+        double offset_from_start = 0.0;
+        if (qpc_frequency_ > 0 && capture_qpc >= recording_start_qpc_) {
+            offset_from_start = static_cast<double>(capture_qpc - recording_start_qpc_)
+                               / static_cast<double>(qpc_frequency_) * 1000.0;  // ms
+        }
+        printf("[LibavEncoder] 🎵 첫 오디오 패킷: 녹화 시작 후 %.2fms\n", offset_from_start);
+        fflush(stdout);
+    }
+
     // 1. 입력 데이터를 버퍼에 추가
     const float* samples = reinterpret_cast<const float*>(float32_data);
     size_t sample_count = length / sizeof(float);  // Interleaved 샘플 수 (L+R+L+R...)
@@ -454,20 +478,43 @@ bool LibavEncoder::EncodeAudio(const uint8_t* float32_data, size_t length, uint6
             return false;
         }
 
-        // 2.3. 샘플 카운터 기반 PTS 계산
-        // ⚠️ 수정: QPC 기반 계산에서 audio_samples_written_을 또 더해서 2배가 되는 버그 수정
-        // 오디오는 연속적인 샘플 스트림이므로 단순히 누적 샘플 수를 PTS로 사용
-        // time_base = 1/sample_rate 이므로 PTS = 샘플 수
-        int64_t pts = audio_samples_written_;
+        // 2.3. QPC 기반 PTS 계산 (비디오와 동일한 방식으로 A/V 동기화)
+        // ⚠️ 핵심 수정: 샘플 카운터 기반 → QPC 기반으로 변경
+        // 비디오와 동일하게 recording_start_qpc_를 기준으로 경과 시간 계산
+        //
+        // 원리:
+        // - 비디오: PTS = elapsed_seconds × fps (time_base = 1/fps)
+        // - 오디오: PTS = elapsed_seconds × sample_rate (time_base = 1/sample_rate)
+        // - 둘 다 동일한 recording_start_qpc_를 기준으로 하므로 자연스럽게 동기화됨
+        //
+        // 예시 (5초 경과 시):
+        // - 비디오: 5.0 × 24fps = PTS 120
+        // - 오디오: 5.0 × 48000Hz = PTS 240000
+        // - av_packet_rescale_ts로 mux time_base로 변환 시 동일한 시점을 가리킴
+        int64_t pts = 0;
+        if (qpc_frequency_ > 0 && capture_qpc >= recording_start_qpc_) {
+            // 경과 시간(초) = (현재 QPC - 시작 QPC) / QPC 주파수
+            double elapsed_seconds = static_cast<double>(capture_qpc - recording_start_qpc_)
+                                    / static_cast<double>(qpc_frequency_);
 
-        // 단조 증가 보장
-        if (pts <= last_audio_pts_) {
-            pts = last_audio_pts_ + 1;
+            // PTS = 경과 시간 × sample_rate
+            // audio time_base = 1/sample_rate 이므로 time_base.den = sample_rate
+            pts = static_cast<int64_t>(elapsed_seconds * audio_codec_ctx_->time_base.den);
+
+            // 단조 증가 보장: PTS가 이전보다 작거나 같으면 직전+frame_size 사용
+            // frame_size만큼 증가시켜야 연속적인 오디오 스트림 유지
+            if (pts <= last_audio_pts_) {
+                pts = last_audio_pts_ + audio_codec_ctx_->frame_size;
+            }
+            last_audio_pts_ = pts;
+        } else {
+            // QPC 미초기화 시 폴백 (이론상 발생 안함)
+            pts = (last_audio_pts_ < 0) ? 0 : last_audio_pts_ + audio_codec_ctx_->frame_size;
+            last_audio_pts_ = pts;
         }
-        last_audio_pts_ = pts;
 
         audio_frame_->pts = pts;
-        audio_samples_written_ += frame_size;
+        audio_samples_written_ += frame_size;  // 통계용 (PTS 계산에는 미사용)
 
         // 2.4. 인코더에 전송
         if (!SendAudioFrame(audio_frame_)) {
@@ -631,4 +678,5 @@ void LibavEncoder::Cleanup() {
     audio_samples_written_ = 0;
     recording_start_qpc_ = 0;
     qpc_frequency_ = 0;
+    first_video_logged_ = false;
 }
